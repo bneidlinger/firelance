@@ -1,0 +1,9 @@
+{
+  "name": "@firelance/server",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

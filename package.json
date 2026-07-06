@@ -1,0 +1,33 @@
+{
+  "name": "firelance",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:server": "tsx watch packages/server/src/index.ts --config prototype --bots 3",
+    "dev:client": "npm -w @firelance/client run dev",
+    "play:bots": "tsx packages/server/src/index.ts --config prototype --bots 11",
+    "bots": "tsx packages/bots/src/runner.ts --count 4",
+    "match:smoke": "tsx scripts/smoke-match.ts",
+    "match:headless": "tsx scripts/headless-match.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/bots && tsc -p packages/client && tsc -p tsconfig.json",
+    "fmt": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.4"
+  }
+}

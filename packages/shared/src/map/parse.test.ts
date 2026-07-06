@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { parseMap } from './parse';
+import { isWalkBlocked, isVisionBlocked } from './types';
+import { scrimSmall } from './maps/scrim_small';
+import { getMap } from './maps';
+
+const TINY = `
+##########
+#1..2..K.#
+#..##....#
+#..##..T.#
+#3..4..K.#
+#........#
+#..ff....#
+##########
+`;
+
+describe('map parser', () => {
+  it('parses the tiny fixture with correct flags and POIs', () => {
+    const m = parseMap('tiny', TINY);
+    expect(m.width).toBe(10);
+    expect(m.height).toBe(8);
+    expect(m.spawns).toHaveLength(4);
+    expect(m.keeps).toHaveLength(2);
+    expect(m.towns).toHaveLength(1);
+    // border blocks walk + vision
+    expect(isWalkBlocked(m, 0, 0)).toBe(true);
+    expect(isVisionBlocked(m, 0, 0)).toBe(true);
+    // inner wall block
+    expect(isWalkBlocked(m, 3, 2)).toBe(true);
+    // open ground
+    expect(isWalkBlocked(m, 1, 5)).toBe(false);
+    // forest: walkable, flagged, does not block vision rays
+    expect(isWalkBlocked(m, 3, 6)).toBe(false);
+    expect(m.forest[6 * m.width + 3]).toBe(1);
+    expect(isVisionBlocked(m, 3, 6)).toBe(false);
+    // out of bounds counts as blocked
+    expect(isWalkBlocked(m, -1, 0)).toBe(true);
+    expect(isWalkBlocked(m, 10, 0)).toBe(true);
+  });
+
+  it('rejects ragged rows', () => {
+    expect(() => parseMap('bad', '####\n##\n####')).toThrow(/length/);
+  });
+
+  it('rejects unknown tiles', () => {
+    expect(() => parseMap('bad', '##\n#x')).toThrow(/unknown tile/);
+  });
+
+  it('rejects maps missing spawns', () => {
+    expect(() => parseMap('bad', '####\n#KT#\n####')).toThrow(/missing spawn/);
+  });
+});
+
+describe('scrim_small', () => {
+  it('is 96x96 with 4 spawns, 4 keep sites, 1 town', () => {
+    expect(scrimSmall.width).toBe(96);
+    expect(scrimSmall.height).toBe(96);
+    expect(scrimSmall.spawns).toHaveLength(4);
+    expect(scrimSmall.keeps).toHaveLength(4);
+    expect(scrimSmall.towns).toHaveLength(1);
+  });
+
+  it('river blocks walking but bridges are walkable', () => {
+    // river spans rows 46-49; bridge columns are 22-27 and 68-73
+    expect(isWalkBlocked(scrimSmall, 10, 47)).toBe(true); // water
+    expect(isWalkBlocked(scrimSmall, 24, 47)).toBe(false); // west bridge
+    expect(isWalkBlocked(scrimSmall, 70, 48)).toBe(false); // east bridge
+    // water does not block vision rays
+    expect(isVisionBlocked(scrimSmall, 10, 47)).toBe(false);
+  });
+
+  it('all spawn points and POIs are on walkable ground', () => {
+    for (const p of [...scrimSmall.spawns, ...scrimSmall.keeps, ...scrimSmall.towns]) {
+      expect(isWalkBlocked(scrimSmall, Math.floor(p.x), Math.floor(p.y))).toBe(false);
+    }
+  });
+
+  it('is registered in the map registry', () => {
+    expect(getMap('scrim_small')).toBe(scrimSmall);
+    expect(() => getMap('nope')).toThrow(/Unknown map/);
+  });
+});

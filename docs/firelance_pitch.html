@@ -1,0 +1,1536 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Firelance — Top-Down Medieval Bounty Siege</title>
+    <meta
+      name="description"
+      content="A slick one-page concept pitch for Firelance: a top-down medieval bounty siege game about keeps, gold, banking runs, and player-driven chaos."
+    />
+    <style>
+      :root {
+        --bg: #070807;
+        --bg-2: #0d100d;
+        --panel: rgba(18, 20, 18, 0.78);
+        --panel-strong: rgba(23, 25, 23, 0.95);
+        --ink: #f4ead8;
+        --muted: #b9ad98;
+        --dim: #7c7468;
+        --line: rgba(244, 234, 216, 0.14);
+        --line-strong: rgba(244, 234, 216, 0.24);
+        --gold: #d5aa54;
+        --gold-2: #f2d68c;
+        --red: #b9362f;
+        --red-2: #f05a4d;
+        --blue: #5686bf;
+        --green: #6f8c52;
+        --shadow: 0 20px 70px rgba(0, 0, 0, 0.55);
+        --radius: 22px;
+        --max: 1180px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        background:
+          radial-gradient(circle at 20% 5%, rgba(185, 54, 47, 0.2), transparent 30rem),
+          radial-gradient(circle at 85% 10%, rgba(213, 170, 84, 0.13), transparent 34rem),
+          radial-gradient(circle at 60% 80%, rgba(86, 134, 191, 0.1), transparent 34rem),
+          linear-gradient(180deg, #060706 0%, #0d100d 47%, #070807 100%);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+        background-size: 54px 54px;
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 75%);
+        z-index: 0;
+      }
+
+      .noise {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.075;
+        z-index: 1;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+        mix-blend-mode: overlay;
+      }
+
+      .progress {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 3px;
+        width: 0;
+        background: linear-gradient(90deg, var(--red), var(--gold));
+        z-index: 30;
+        box-shadow: 0 0 22px rgba(213, 170, 84, 0.6);
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line);
+        background: rgba(7, 8, 7, 0.72);
+        backdrop-filter: blur(16px);
+      }
+
+      .nav-inner {
+        width: min(var(--max), calc(100% - 36px));
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 22px;
+        min-height: 68px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 900;
+        color: var(--ink);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .brand-mark {
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        background:
+          radial-gradient(circle at 50% 42%, rgba(240, 90, 77, 0.45), transparent 34%),
+          linear-gradient(135deg, rgba(213, 170, 84, 0.18), rgba(86, 134, 191, 0.1));
+        display: grid;
+        place-items: center;
+        box-shadow:
+          inset 0 0 24px rgba(0, 0, 0, 0.5),
+          0 10px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .brand-mark::before {
+        content: '';
+        width: 17px;
+        height: 24px;
+        background: linear-gradient(180deg, var(--gold-2), var(--red));
+        clip-path: polygon(50% 0%, 72% 30%, 61% 30%, 78% 100%, 47% 57%, 58% 57%, 35% 0%);
+        filter: drop-shadow(0 0 12px rgba(213, 170, 84, 0.65));
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav-links a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.88rem;
+        padding: 9px 11px;
+        border-radius: 999px;
+        transition: 180ms ease;
+      }
+
+      .nav-links a:hover {
+        color: var(--ink);
+        background: rgba(244, 234, 216, 0.08);
+      }
+
+      .hero {
+        position: relative;
+        z-index: 2;
+        width: min(var(--max), calc(100% - 36px));
+        margin: 0 auto;
+        min-height: calc(100vh - 68px);
+        display: grid;
+        grid-template-columns: minmax(0, 0.88fr) minmax(420px, 1.12fr);
+        gap: 30px;
+        align-items: center;
+        padding: 56px 0 74px;
+      }
+
+      .hero-copy {
+        position: relative;
+        padding: 18px 0;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--gold-2);
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-size: 0.75rem;
+        font-weight: 800;
+        margin-bottom: 18px;
+      }
+
+      .eyebrow::before {
+        content: '';
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--red-2);
+        box-shadow: 0 0 18px rgba(240, 90, 77, 0.9);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: clamp(4.1rem, 11vw, 8.4rem);
+        line-height: 0.82;
+        letter-spacing: -0.055em;
+        margin-bottom: 22px;
+        text-transform: uppercase;
+      }
+
+      .title-red {
+        display: block;
+        color: var(--red-2);
+        text-shadow: 0 0 35px rgba(185, 54, 47, 0.35);
+      }
+
+      .title-gold {
+        color: var(--gold-2);
+      }
+
+      .hero-lede {
+        color: var(--muted);
+        font-size: clamp(1.05rem, 1.8vw, 1.33rem);
+        line-height: 1.55;
+        max-width: 56ch;
+        margin-bottom: 28px;
+      }
+
+      .hero-lede strong {
+        color: var(--ink);
+      }
+
+      .actions {
+        display: flex;
+        gap: 13px;
+        flex-wrap: wrap;
+        margin: 28px 0 24px;
+      }
+
+      .btn {
+        appearance: none;
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        text-decoration: none;
+        padding: 12px 16px;
+        border-radius: 999px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(244, 234, 216, 0.07);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+        transition:
+          transform 180ms ease,
+          background 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        border-color: rgba(242, 214, 140, 0.55);
+        background: rgba(244, 234, 216, 0.11);
+      }
+      .btn.primary {
+        background: linear-gradient(135deg, rgba(185, 54, 47, 0.9), rgba(118, 34, 30, 0.96));
+        border-color: rgba(240, 90, 77, 0.7);
+      }
+
+      .quick-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        max-width: 620px;
+      }
+
+      .stat {
+        border: 1px solid var(--line);
+        background: rgba(18, 20, 18, 0.62);
+        border-radius: 16px;
+        padding: 13px 14px;
+      }
+
+      .stat b {
+        display: block;
+        font-size: 1.05rem;
+        color: var(--ink);
+        margin-bottom: 3px;
+      }
+
+      .stat span {
+        color: var(--dim);
+        font-size: 0.83rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 800;
+      }
+
+      .art-shell {
+        position: relative;
+        border: 1px solid var(--line-strong);
+        border-radius: calc(var(--radius) + 8px);
+        background:
+          linear-gradient(135deg, rgba(244, 234, 216, 0.1), rgba(244, 234, 216, 0.03)),
+          rgba(0, 0, 0, 0.24);
+        padding: 12px;
+        box-shadow: var(--shadow);
+        transform: perspective(1200px) rotateY(-3deg) rotateX(1.4deg);
+      }
+
+      .art-shell::before {
+        content: '';
+        position: absolute;
+        inset: -24px;
+        background:
+          radial-gradient(circle at 70% 24%, rgba(213, 170, 84, 0.22), transparent 44%),
+          radial-gradient(circle at 22% 86%, rgba(185, 54, 47, 0.24), transparent 38%);
+        filter: blur(18px);
+        z-index: -1;
+      }
+
+      .art-image {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: var(--radius);
+        border: 1px solid rgba(244, 234, 216, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+
+      .art-caption {
+        position: absolute;
+        left: 28px;
+        right: 28px;
+        bottom: 28px;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: end;
+        pointer-events: none;
+      }
+
+      .glass-tag {
+        border: 1px solid rgba(244, 234, 216, 0.18);
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(12px);
+        color: var(--ink);
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-size: 0.82rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+      }
+
+      .missing-image .art-image {
+        display: none;
+      }
+      .missing-image .missing {
+        display: grid;
+      }
+      .missing {
+        display: none;
+        min-height: 440px;
+        place-items: center;
+        text-align: center;
+        border: 1px dashed rgba(244, 234, 216, 0.26);
+        border-radius: var(--radius);
+        color: var(--muted);
+        padding: 28px;
+        background: rgba(0, 0, 0, 0.26);
+      }
+
+      main {
+        position: relative;
+        z-index: 2;
+      }
+
+      section {
+        width: min(var(--max), calc(100% - 36px));
+        margin: 0 auto;
+        padding: 74px 0;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.82fr) minmax(280px, 0.48fr);
+        gap: 26px;
+        align-items: end;
+        margin-bottom: 28px;
+      }
+
+      .section-kicker {
+        color: var(--gold-2);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 0.76rem;
+        font-weight: 900;
+        margin-bottom: 10px;
+      }
+
+      h2 {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: clamp(2.25rem, 5vw, 4.4rem);
+        line-height: 0.98;
+        letter-spacing: -0.045em;
+        margin-bottom: 0;
+      }
+
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: var(--radius);
+        box-shadow: 0 18px 55px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+      }
+
+      .panel.pad {
+        padding: 24px;
+      }
+
+      .hook-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.55fr);
+        gap: 0;
+        border-color: rgba(213, 170, 84, 0.25);
+      }
+
+      .hook-big {
+        padding: 34px;
+        background:
+          linear-gradient(135deg, rgba(185, 54, 47, 0.17), transparent 55%),
+          linear-gradient(180deg, rgba(244, 234, 216, 0.06), transparent);
+        min-height: 340px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .quote {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: clamp(1.65rem, 3.2vw, 3rem);
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        margin: 0;
+      }
+
+      .quote strong {
+        color: var(--gold-2);
+      }
+
+      .hook-note {
+        color: var(--muted);
+        line-height: 1.65;
+        max-width: 70ch;
+        margin: 30px 0 0;
+      }
+
+      .ticker {
+        border-left: 1px solid var(--line);
+        padding: 26px;
+        background: rgba(0, 0, 0, 0.22);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 340px;
+      }
+
+      .ticker-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 18px;
+        color: var(--gold-2);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.75rem;
+        font-weight: 900;
+      }
+
+      .pulse {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--red-2);
+        box-shadow: 0 0 0 0 rgba(240, 90, 77, 0.75);
+        animation: pulse 1.65s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(240, 90, 77, 0.66);
+        }
+        70% {
+          box-shadow: 0 0 0 13px rgba(240, 90, 77, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(240, 90, 77, 0);
+        }
+      }
+
+      .event-log {
+        display: grid;
+        gap: 9px;
+        min-height: 210px;
+        align-content: start;
+      }
+
+      .event {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        color: var(--muted);
+        border: 1px solid rgba(244, 234, 216, 0.09);
+        background: rgba(244, 234, 216, 0.035);
+        border-radius: 13px;
+        padding: 10px 11px;
+        font-size: 0.9rem;
+        transform-origin: top;
+        animation: slideIn 420ms ease both;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .event b {
+        color: var(--ink);
+      }
+      .event .gold {
+        color: var(--gold-2);
+        font-weight: 900;
+      }
+      .event .red {
+        color: var(--red-2);
+        font-weight: 900;
+      }
+      .event .blue {
+        color: #89b8f2;
+        font-weight: 900;
+      }
+
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(244, 234, 216, 0.055), rgba(244, 234, 216, 0.018)),
+          rgba(17, 19, 17, 0.74);
+        border-radius: var(--radius);
+        padding: 22px;
+        min-height: 220px;
+        box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card::after {
+        content: '';
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        right: -58px;
+        top: -52px;
+        background: radial-gradient(circle, rgba(213, 170, 84, 0.14), transparent 70%);
+      }
+
+      .card .num {
+        color: var(--gold-2);
+        font-weight: 950;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 0.76rem;
+        margin-bottom: 18px;
+      }
+
+      .card h3 {
+        font-size: 1.35rem;
+        line-height: 1.1;
+        margin-bottom: 12px;
+      }
+
+      .card p {
+        color: var(--muted);
+        line-height: 1.58;
+        margin-bottom: 0;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .flow-step {
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        padding: 15px 12px;
+        background: rgba(0, 0, 0, 0.21);
+        min-height: 115px;
+      }
+
+      .flow-step:not(:last-child)::after {
+        content: '→';
+        position: absolute;
+        right: -13px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--gold-2);
+        font-weight: 900;
+        z-index: 3;
+      }
+
+      .flow-step b {
+        display: block;
+        font-size: 0.95rem;
+        margin-bottom: 8px;
+      }
+
+      .flow-step span {
+        color: var(--dim);
+        font-size: 0.83rem;
+        line-height: 1.35;
+        display: block;
+      }
+
+      .showcase {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 0.42fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .showcase-img {
+        min-height: 470px;
+        background-image:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.35)),
+          url('media/conceptart1.png');
+        background-size: cover;
+        background-position: center;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .showcase-img::after {
+        content: 'CONCEPT ART / LOOK + FEEL';
+        position: absolute;
+        left: 18px;
+        bottom: 18px;
+        color: var(--ink);
+        background: rgba(0, 0, 0, 0.62);
+        border: 1px solid rgba(244, 234, 216, 0.15);
+        border-radius: 999px;
+        padding: 10px 13px;
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        font-weight: 900;
+        backdrop-filter: blur(10px);
+      }
+
+      .feel-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .feel-item {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: rgba(244, 234, 216, 0.045);
+      }
+
+      .feel-item b {
+        display: block;
+        margin-bottom: 7px;
+      }
+      .feel-item span {
+        color: var(--muted);
+        line-height: 1.45;
+        display: block;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.55fr);
+        gap: 18px;
+      }
+
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .rule {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgba(244, 234, 216, 0.04);
+        padding: 16px;
+      }
+
+      .rule b {
+        color: var(--gold-2);
+        display: block;
+        margin-bottom: 8px;
+      }
+      .rule p {
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 0;
+      }
+
+      .bounty-track {
+        display: grid;
+        gap: 10px;
+      }
+
+      .tier {
+        display: grid;
+        grid-template-columns: 74px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.18);
+      }
+
+      .tier-level {
+        color: var(--gold-2);
+        font-weight: 950;
+        text-transform: uppercase;
+        font-size: 0.74rem;
+        letter-spacing: 0.1em;
+      }
+
+      .tier b {
+        display: block;
+        margin-bottom: 3px;
+      }
+      .tier span {
+        color: var(--dim);
+        font-size: 0.86rem;
+      }
+      .tier em {
+        font-style: normal;
+        color: var(--red-2);
+        font-weight: 900;
+        font-size: 0.84rem;
+        white-space: nowrap;
+      }
+
+      .mvp {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .mvp-box {
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 18px;
+        padding: 18px;
+        min-height: 142px;
+      }
+
+      .mvp-box b {
+        display: block;
+        color: var(--ink);
+        margin-bottom: 9px;
+        font-size: 1.02rem;
+      }
+
+      .mvp-box span {
+        color: var(--muted);
+        line-height: 1.45;
+        font-size: 0.93rem;
+      }
+
+      .prototype-list {
+        display: grid;
+        gap: 10px;
+        counter-reset: proto;
+      }
+
+      .proto {
+        counter-increment: proto;
+        display: grid;
+        grid-template-columns: 42px 1fr;
+        gap: 12px;
+        align-items: start;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 15px;
+        background: rgba(244, 234, 216, 0.04);
+      }
+
+      .proto::before {
+        content: counter(proto);
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: rgba(213, 170, 84, 0.15);
+        color: var(--gold-2);
+        border: 1px solid rgba(213, 170, 84, 0.35);
+        display: grid;
+        place-items: center;
+        font-weight: 950;
+      }
+
+      .proto b {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .proto span {
+        color: var(--muted);
+        line-height: 1.42;
+        display: block;
+      }
+
+      .brother-card {
+        padding: 28px;
+        background:
+          linear-gradient(135deg, rgba(86, 134, 191, 0.16), transparent 50%),
+          linear-gradient(180deg, rgba(244, 234, 216, 0.07), rgba(244, 234, 216, 0.02)),
+          rgba(0, 0, 0, 0.22);
+        border-color: rgba(86, 134, 191, 0.28);
+      }
+
+      .brother-card h3 {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        line-height: 1.02;
+        letter-spacing: -0.035em;
+        margin-bottom: 15px;
+      }
+
+      .brother-card p {
+        color: var(--muted);
+        line-height: 1.65;
+        font-size: 1.05rem;
+        margin-bottom: 18px;
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 16px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        background: rgba(244, 234, 216, 0.06);
+        border-radius: 999px;
+        padding: 8px 11px;
+        color: var(--muted);
+        font-size: 0.84rem;
+        font-weight: 800;
+      }
+
+      footer {
+        position: relative;
+        z-index: 2;
+        border-top: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.2);
+        padding: 34px 0;
+        color: var(--dim);
+      }
+
+      .footer-inner {
+        width: min(var(--max), calc(100% - 36px));
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .small-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--muted);
+        font-size: 0.83rem;
+      }
+
+      @media (max-width: 980px) {
+        .hero,
+        .section-head,
+        .hook-panel,
+        .showcase,
+        .split {
+          grid-template-columns: 1fr;
+        }
+        .hero {
+          min-height: auto;
+          padding-top: 42px;
+        }
+        .art-shell {
+          transform: none;
+        }
+        .grid-3,
+        .mvp,
+        .rules {
+          grid-template-columns: 1fr 1fr;
+        }
+        .flow {
+          grid-template-columns: 1fr;
+        }
+        .flow-step:not(:last-child)::after {
+          content: '↓';
+          right: 18px;
+          top: auto;
+          bottom: -18px;
+          transform: none;
+        }
+        .ticker {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 680px) {
+        .nav-inner {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 14px 0;
+        }
+        .nav-links {
+          justify-content: flex-start;
+        }
+        h1 {
+          font-size: clamp(3.4rem, 19vw, 5rem);
+        }
+        section {
+          padding: 54px 0;
+        }
+        .grid-3,
+        .mvp,
+        .rules,
+        .quick-stats {
+          grid-template-columns: 1fr;
+        }
+        .tier {
+          grid-template-columns: 1fr;
+        }
+        .tier em {
+          white-space: normal;
+        }
+        .showcase-img {
+          min-height: 320px;
+        }
+        .art-caption {
+          position: static;
+          margin-top: 10px;
+          display: block;
+        }
+        .glass-tag {
+          margin-top: 8px;
+          display: inline-flex;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="progress" id="progress"></div>
+    <div class="noise"></div>
+
+    <nav class="nav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a class="brand" href="#top" aria-label="Firelance home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Firelance</span>
+        </a>
+        <div class="nav-links">
+          <a href="#hook">Hook</a>
+          <a href="#feel">Look + Feel</a>
+          <a href="#systems">Systems</a>
+          <a href="#mvp">MVP</a>
+          <a href="#dev">Dev Slice</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero" id="top">
+      <div class="hero-copy">
+        <div class="eyebrow">Top-down medieval bounty siege</div>
+        <h1><span class="title-red">Fire</span><span class="title-gold">lance</span></h1>
+        <p class="hero-lede">
+          A squad-based multiplayer game where teams build temporary keeps, grow rich through kills
+          and objectives, then risk everything on dangerous banking runs before rival squads crack
+          the walls and steal the vault.
+        </p>
+        <p class="hero-lede">
+          Think <strong>old-school top-down PvP projectile chaos</strong> with
+          <strong>Age of Empires readability</strong> and a
+          <strong>modern competitive sheen</strong> — less cartoony, more torchlight, steel, mud,
+          banners, and bad decisions.
+        </p>
+        <div class="actions">
+          <a class="btn primary" href="#hook">See the Hook</a>
+          <a class="btn" href="#dev">Prototype Plan</a>
+        </div>
+        <div class="quick-stats" aria-label="MVP target stats">
+          <div class="stat"><b>4 squads</b><span>MVP target</span></div>
+          <div class="stat"><b>12 players</b><span>3 per squad</span></div>
+          <div class="stat"><b>30 min</b><span>Match goal</span></div>
+        </div>
+      </div>
+
+      <div class="art-shell" id="heroArt">
+        <img
+          class="art-image"
+          src="media/conceptart1.png"
+          alt="Top-down concept art board showing a medieval keep siege, battlefield UI, classes, environments, and banners."
+          onerror="document.getElementById('heroArt').classList.add('missing-image')"
+        />
+        <div class="missing">
+          <div>
+            <h2>Concept art missing</h2>
+            <p>
+              Place the image at <span class="small-code">media/conceptart1.png</span> next to this
+              HTML file.
+            </p>
+          </div>
+        </div>
+        <div class="art-caption" aria-hidden="true">
+          <span class="glass-tag">Slow projectiles</span>
+          <span class="glass-tag">Keeps • Bounties • Banking runs</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="hook">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">The core hook</div>
+            <h2>The richer you get, the more the world wants you dead.</h2>
+          </div>
+          <p>
+            Firelance is not just about winning fights. It is about becoming valuable, deciding when
+            to cash out, and surviving the obvious consequences of greed.
+          </p>
+        </div>
+
+        <div class="panel hook-panel">
+          <div class="hook-big">
+            <p class="quote">
+              Build a keep. Fill the vault. Escort the gold.
+              <strong>Try not to become a public service announcement.</strong>
+            </p>
+            <p class="hook-note">
+              Every squad starts scattered, chooses a defensible location, builds a keep, and uses
+              it as both respawn point and vault. Gold earned through kills and objectives goes into
+              the keep first. To actually win, the squad must physically move that gold to neutral
+              towns and bank it under pressure.
+            </p>
+          </div>
+          <aside class="ticker" aria-label="Example match event log">
+            <div>
+              <div class="ticker-title">
+                <span>Live match pressure</span><span class="pulse" aria-hidden="true"></span>
+              </div>
+              <div class="event-log" id="eventLog"></div>
+            </div>
+            <div class="pill-row">
+              <span class="pill">Bounty rises</span>
+              <span class="pill">Keep exposed</span>
+              <span class="pill">Gold must move</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section>
+        <div class="grid-3">
+          <article class="card">
+            <div class="num">01 / Claim</div>
+            <h3>Pick the keep site</h3>
+            <p>
+              Terrain is known, but enemies are hidden by fog of war. Squads race toward hills,
+              ruins, forests, and chokepoints — and may collide before the first wall goes up.
+            </p>
+          </article>
+          <article class="card">
+            <div class="num">02 / Grow</div>
+            <h3>Kill, assist, build, scout</h3>
+            <p>
+              Kills and objectives feed gold into the keep. Personal bounty rises as players
+              perform, making them more profitable and more dangerous to carry.
+            </p>
+          </article>
+          <article class="card">
+            <div class="num">03 / Cash out</div>
+            <h3>Bank or get plundered</h3>
+            <p>
+              Gold in the keep is only potential victory. Banked gold is safe. Big banking runs
+              leave the keep vulnerable and turn the carrier into walking bait.
+            </p>
+          </article>
+        </div>
+
+        <div class="panel pad" style="margin-top: 16px">
+          <div class="flow" aria-label="Core gameplay loop">
+            <div class="flow-step">
+              <b>Spawn</b
+              ><span>Squads begin scattered with terrain known and enemy info hidden.</span>
+            </div>
+            <div class="flow-step">
+              <b>Claim</b><span>Plant a keep standard in a defensible but risky location.</span>
+            </div>
+            <div class="flow-step">
+              <b>Fortify</b
+              ><span>Build walls, gates, towers, and traps with limited structure caps.</span>
+            </div>
+            <div class="flow-step">
+              <b>Hunt</b
+              ><span>Earn gold, bounty, and map pressure through combat and objectives.</span>
+            </div>
+            <div class="flow-step">
+              <b>Bank</b><span>Carry strongboxes to towns while enemies sniff out the run.</span>
+            </div>
+            <div class="flow-step">
+              <b>Siege</b><span>Destroy enemy keeps to stop respawns and spill the vault.</span>
+            </div>
+            <div class="flow-step">
+              <b>Win</b><span>Most banked gold among surviving squads takes the match.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="feel">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Look + feel</div>
+            <h2>Readable strategy, gritty action, premium sheen.</h2>
+          </div>
+          <p>
+            The camera and clarity should feel tactical. The surface treatment should feel modern:
+            lit armor edges, projectile trails, foggy forests, firelight, readable silhouettes, and
+            sharp UI.
+          </p>
+        </div>
+
+        <div class="showcase">
+          <div
+            class="showcase-img"
+            role="img"
+            aria-label="Concept image showing top-down medieval combat and base siege UI."
+          ></div>
+          <div class="panel pad feel-list">
+            <div class="feel-item">
+              <b>Top-down tactical view</b
+              ><span
+                >Wide enough to read formations, projectiles, walls, and flank routes. Close enough
+                that a single arrow still feels personal.</span
+              >
+            </div>
+            <div class="feel-item">
+              <b>Dodgeable projectile combat</b
+              ><span
+                >Arrows, bolts, javelins, bombs, and low-fantasy magic are visible objects. Aim,
+                lead, dodge, block, and use terrain.</span
+              >
+            </div>
+            <div class="feel-item">
+              <b>Medieval, but not dusty</b
+              ><span
+                >Age-of-Empires legibility with more dramatic lighting, cleaner UI, richer
+                materials, and darker competitive mood.</span
+              >
+            </div>
+            <div class="feel-item">
+              <b>Less cartoon, more steel</b
+              ><span
+                >Stylized realism: readable silhouettes, tasteful effects, no neon spell soup, no
+                comedy-proportioned shoulder pads unless we are punishing someone.</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="systems">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Core systems</div>
+            <h2>Simple rules that create ugly, beautiful choices.</h2>
+          </div>
+          <p>
+            The systems are designed to produce stories: escort missions, third-party raids,
+            emergency rebuilds, bait banking, desperate defenses, and high-bounty executions.
+          </p>
+        </div>
+
+        <div class="split">
+          <div class="panel pad">
+            <div class="rules">
+              <div class="rule">
+                <b>Keep = respawn + vault</b>
+                <p>
+                  If the keep stands, dead players respawn. If it falls, respawns stop and the vault
+                  spills into lootable sacks and chests.
+                </p>
+              </div>
+              <div class="rule">
+                <b>Gold starts unsafe</b>
+                <p>
+                  Kills and objectives send gold to the squad keep first. It only becomes victory
+                  score after a successful town banking run.
+                </p>
+              </div>
+              <div class="rule">
+                <b>Banking is physical</b>
+                <p>
+                  Gold becomes a carried strongbox. Bigger deposits are slower, louder, and more
+                  tempting to ambush.
+                </p>
+              </div>
+              <div class="rule">
+                <b>Everyone builds</b>
+                <p>
+                  All players can build and repair basic structures. Engineers specialize in gates,
+                  towers, traps, and advanced defenses.
+                </p>
+              </div>
+              <div class="rule">
+                <b>Bounty adds pressure</b>
+                <p>
+                  Higher bounty increases reward and visibility. It does not simply make the player
+                  stronger. Success paints the target.
+                </p>
+              </div>
+              <div class="rule">
+                <b>Fog hides intent</b>
+                <p>
+                  Terrain is known, but keeps, traps, banking runs, and enemy movement must be
+                  scouted or inferred from rumors.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <aside class="panel pad">
+            <div class="section-kicker">Bounty escalation</div>
+            <div class="bounty-track">
+              <div class="tier">
+                <div class="tier-level">Tier 0</div>
+                <div><b>Nobody</b><span>Low payout, low attention.</span></div>
+                <em>Quiet</em>
+              </div>
+              <div class="tier">
+                <div class="tier-level">Tier 1</div>
+                <div><b>Known Blade</b><span>Early reward bonus for active players.</span></div>
+                <em>Valuable</em>
+              </div>
+              <div class="tier">
+                <div class="tier-level">Tier 2</div>
+                <div>
+                  <b>Wanted</b><span>Killing this player is now worth planning around.</span>
+                </div>
+                <em>Targeted</em>
+              </div>
+              <div class="tier">
+                <div class="tier-level">Tier 3</div>
+                <div><b>Hunted</b><span>Vague map rumors begin to appear.</span></div>
+                <em>Pressure</em>
+              </div>
+              <div class="tier">
+                <div class="tier-level">Tier 4</div>
+                <div><b>Infamous</b><span>Towns and scouts spread wider warnings.</span></div>
+                <em>Danger</em>
+              </div>
+              <div class="tier">
+                <div class="tier-level">Tier 5</div>
+                <div><b>Crownmarked</b><span>Their death can swing the whole match.</span></div>
+                <em>Panic</em>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="mvp">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">MVP scope</div>
+            <h2>Build the smallest version that proves the panic.</h2>
+          </div>
+          <p>
+            The first playable should avoid procedural map generators, sprawling tech trees, and
+            survival-game feature tar pits. Prove bounty, banking, keeps, and plunder first.
+          </p>
+        </div>
+
+        <div class="panel pad">
+          <div class="mvp">
+            <div class="mvp-box">
+              <b>Players</b
+              ><span
+                >4 squads of 3 players. Enough chaos for third-party raids without needing a massive
+                population.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Map</b
+              ><span
+                >One static forest/ruins map with randomized spawns, 8–12 legal keep sites, 2–3
+                towns, and fog of war.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Classes</b
+              ><span
+                >Fighter, Ranger, Engineer. Clear roles, readable counters, and enough variety for
+                team decisions.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Structures</b
+              ><span
+                >Keep, wall, gate, tower, trap. Hard caps prevent cursed medieval suburbia.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Combat</b
+              ><span
+                >Top-down movement, mouse aim, visible projectiles, melee arcs, shields, dodges, and
+                simple hazards.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Gold</b
+              ><span
+                >Kill and objective gold goes to the keep. Banked gold wins. Destroyed keeps spill
+                unbanked gold.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Bounty</b
+              ><span
+                >Kills, assists, survival, and banking raise personal bounty. Higher bounty means
+                higher reward and tracking pressure.</span
+              >
+            </div>
+            <div class="mvp-box">
+              <b>Match</b
+              ><span
+                >25–35 minutes. Surviving squad with the most banked gold wins. Exile/rebuild rules
+                tested later.</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="dev">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">First dev slice</div>
+            <h2>One playable slice, no feature goblin infestation.</h2>
+          </div>
+          <p>
+            The first prototype should answer one question: is it fun when squads fight over a keep,
+            a bounty target, and a banking run?
+          </p>
+        </div>
+
+        <div class="split">
+          <div class="panel pad">
+            <div class="prototype-list">
+              <div class="proto">
+                <div>
+                  <b>Combat sandbox</b
+                  ><span
+                    >Top-down movement, mouse aim, slow projectiles, simple health, death, respawn,
+                    and one compact test arena.</span
+                  >
+                </div>
+              </div>
+              <div class="proto">
+                <div>
+                  <b>Pre-placed keeps</b
+                  ><span
+                    >Skip building temporarily. Let each squad spawn at a basic keep that stores
+                    gold and controls respawns.</span
+                  >
+                </div>
+              </div>
+              <div class="proto">
+                <div>
+                  <b>Bounty + kill gold</b
+                  ><span
+                    >Kills and assists raise bounty. Kill rewards go to the squad keep. High-bounty
+                    kills generate meaningful swings.</span
+                  >
+                </div>
+              </div>
+              <div class="proto">
+                <div>
+                  <b>Banking run</b
+                  ><span
+                    >Turn vault gold into a carried strongbox, move it to town, channel to bank, and
+                    make it safe victory score.</span
+                  >
+                </div>
+              </div>
+              <div class="proto">
+                <div>
+                  <b>Keep destruction</b
+                  ><span
+                    >Attacking a keep disables respawn pressure and spills loot into sacks/chests
+                    that anyone can steal.</span
+                  >
+                </div>
+              </div>
+              <div class="proto">
+                <div>
+                  <b>Basic building</b
+                  ><span
+                    >Add walls, gates, towers, traps, and the Engineer only after bounty + banking
+                    already feel good.</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="panel brother-card">
+            <h3>The brother sell</h3>
+            <p>
+              This is the old addictive top-down PvP feeling, but rebuilt around one modern problem:
+              what happens when the best player becomes the biggest payday on the map?
+            </p>
+            <p>
+              The keeps create territory. The bounty creates obsession. The banking run creates the
+              bad decision. That is the whole toy box.
+            </p>
+            <div class="pill-row">
+              <span class="pill">fast prototype</span>
+              <span class="pill">high drama</span>
+              <span class="pill">clear MVP</span>
+              <span class="pill">multiplayer-first</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-inner">
+        <div><strong>Firelance</strong> — working title / concept pitch</div>
+        <div class="small-code">Expected image path: media/conceptart1.png</div>
+      </div>
+    </footer>
+
+    <script>
+      const log = document.getElementById('eventLog');
+      const events = [
+        '<span class="blue">Blue Keep</span> planted a standard near Blackpine Ford.',
+        '<b>Mira</b> killed <b>Rogar</b> <span class="gold">+120g</span>. Bounty Tier 2.',
+        '<span class="red">Red Squad</span> spotted carrying a war chest east.',
+        '<b>Eldric</b> banked <span class="gold">550g</span> at Stonebridge.',
+        '<span class="red">Keep under attack</span>: North wall breached.',
+        '<b>Thorne</b> became <span class="red">Crownmarked</span>. Region rumor active.',
+        '<span class="gold">Vault spilled</span>: 1 chest, 4 sacks, 900g loose.',
+        '<span class="blue">Blue Squad</span> abandoned bank run to defend keep.',
+      ];
+      let index = 0;
+
+      function addEvent() {
+        const item = document.createElement('div');
+        item.className = 'event';
+        item.innerHTML = events[index % events.length];
+        log.prepend(item);
+        while (log.children.length > 5) log.removeChild(log.lastElementChild);
+        index++;
+      }
+
+      for (let i = 0; i < 5; i++) addEvent();
+      setInterval(addEvent, 2600);
+
+      const progress = document.getElementById('progress');
+      function updateProgress() {
+        const scrollTop = window.scrollY || document.documentElement.scrollTop;
+        const height = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = height > 0 ? (scrollTop / height) * 100 : 0;
+        progress.style.width = pct + '%';
+      }
+      updateProgress();
+      window.addEventListener('scroll', updateProgress, { passive: true });
+    </script>
+  </body>
+</html>
