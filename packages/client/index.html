@@ -12,16 +12,22 @@
         overflow: hidden;
         background: #0d100d;
         font-family: ui-monospace, Consolas, monospace;
+        user-select: none;
       }
       #app {
         position: fixed;
         inset: 0;
       }
-      #overlay {
+      .hud {
         position: fixed;
+        color: #f4ead8;
+        pointer-events: none;
+        z-index: 10;
+        text-shadow: 0 1px 3px #000;
+      }
+      #overlay {
         top: 8px;
         left: 8px;
-        color: #f4ead8;
         background: rgba(0, 0, 0, 0.65);
         padding: 8px 10px;
         font-size: 12px;
@@ -29,28 +35,199 @@
         border-radius: 6px;
         white-space: pre;
         display: none;
-        pointer-events: none;
-        z-index: 10;
       }
       #banner {
-        position: fixed;
-        top: 40%;
+        top: 38%;
         left: 0;
         right: 0;
         text-align: center;
         color: #f05a4d;
         font-size: 28px;
         font-weight: bold;
-        text-shadow: 0 2px 8px #000;
         display: none;
         z-index: 20;
+      }
+      #topbar {
+        top: 8px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 14px;
+      }
+      #topbar .timer {
+        font-size: 20px;
+        font-weight: bold;
+        letter-spacing: 1px;
+      }
+      #topbar .squads {
+        margin-top: 2px;
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        font-size: 12px;
+      }
+      #topbar .squads span {
+        padding: 1px 8px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.5);
+      }
+      #killfeed {
+        top: 64px;
+        right: 10px;
+        text-align: right;
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      #killfeed div {
+        background: rgba(0, 0, 0, 0.45);
+        padding: 1px 8px;
+        border-radius: 4px;
+        margin-bottom: 3px;
+        transition: opacity 0.6s;
+      }
+      #board {
+        top: 64px;
+        left: 10px;
+        font-size: 12px;
+        line-height: 1.6;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 6px 10px;
+        border-radius: 6px;
+        min-width: 170px;
+      }
+      #board .hdr {
+        color: #d5aa54;
+        font-weight: bold;
+      }
+      #selfbar {
+        bottom: 14px;
+        left: 0;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+      }
+      #hpwrap {
+        width: 260px;
+        height: 14px;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #3a3f33;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      #hpfill {
+        height: 100%;
+        width: 100%;
+        background: #8fae6a;
+        transition: width 0.12s linear;
+      }
+      #selfmeta {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 2px 10px;
+        border-radius: 4px;
+      }
+      #dash.ready {
+        color: #8fae6a;
+      }
+      #dash.cooling {
+        color: #777;
+      }
+      #deathveil {
+        inset: 0;
+        background: radial-gradient(ellipse at center, rgba(60, 0, 0, 0.25), rgba(20, 0, 0, 0.6));
+        display: none;
+        z-index: 15;
+      }
+      #deathmsg {
+        top: 44%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 22px;
+        color: #f2d68c;
+        display: none;
+        z-index: 16;
+      }
+      #deathmsg .sub {
+        font-size: 14px;
+        color: #b9ad98;
+        margin-top: 6px;
+      }
+      #endscreen {
+        inset: 0;
+        background: rgba(10, 12, 8, 0.82);
+        display: none;
+        z-index: 30;
+        text-align: center;
+        padding-top: 12vh;
+      }
+      #endscreen h1 {
+        color: #d5aa54;
+        font-size: 34px;
+        margin: 0 0 18px;
+      }
+      #endscreen table {
+        margin: 0 auto;
+        border-collapse: collapse;
+        font-size: 16px;
+      }
+      #endscreen td,
+      #endscreen th {
+        padding: 4px 18px;
+        text-align: left;
+      }
+      #endscreen .restart {
+        margin-top: 22px;
+        color: #b9ad98;
+        font-size: 14px;
+      }
+      #toast {
+        bottom: 84px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 13px;
+        color: #f2d68c;
+        opacity: 0;
+        transition: opacity 0.4s;
+      }
+      #vignette {
+        inset: 0;
+        box-shadow: inset 0 0 120px 40px rgba(220, 40, 30, 0.55);
+        opacity: 0;
+        z-index: 12;
+        transition: opacity 0.09s;
       }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="overlay"></div>
-    <div id="banner"></div>
+    <div id="vignette" class="hud"></div>
+    <div id="topbar" class="hud">
+      <div class="timer" id="timer"></div>
+      <div class="squads" id="squadgold"></div>
+    </div>
+    <div id="board" class="hud"></div>
+    <div id="killfeed" class="hud"></div>
+    <div id="selfbar" class="hud">
+      <div id="hpwrap"><div id="hpfill"></div></div>
+      <div id="selfmeta">
+        <span id="selfclass"></span>
+        <span id="dash"></span>
+        <span id="selfbounty"></span>
+      </div>
+    </div>
+    <div id="deathveil" class="hud"></div>
+    <div id="deathmsg" class="hud"></div>
+    <div id="endscreen" class="hud"></div>
+    <div id="toast" class="hud"></div>
+    <div id="overlay" class="hud"></div>
+    <div id="banner" class="hud"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

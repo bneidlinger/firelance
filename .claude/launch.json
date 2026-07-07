@@ -6,6 +6,21 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:client"],
       "port": 5173
+    },
+    {
+      "name": "server-with-bots",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "packages/server/src/index.ts",
+        "--config",
+        "prototype",
+        "--bots",
+        "11",
+        "--seed",
+        "7"
+      ],
+      "port": 8787
     }
   ]
 }

@@ -24,11 +24,18 @@ export class Scene {
   readonly world = new Container();
   readonly mapLayer = new Container();
   readonly entityLayer = new Container();
+  readonly projectileLayer = new Container();
+  readonly fxLayer = new Container();
+  readonly fogLayer = new Container();
 
   private constructor(app: Application) {
     this.app = app;
+    // Draw order: terrain, bodies, arrows over bodies, sparks, fog veils all.
     this.world.addChild(this.mapLayer);
     this.world.addChild(this.entityLayer);
+    this.world.addChild(this.projectileLayer);
+    this.world.addChild(this.fxLayer);
+    this.world.addChild(this.fogLayer);
     app.stage.addChild(this.world);
   }
 

@@ -1,18 +1,65 @@
-import type { GameConfig } from '../../config';
+import type { ClassId, GameConfig } from '../../config';
+import { getKit, secToTicks } from '../../config';
 import type { MapData } from '../../map/types';
 import { isWalkBlocked } from '../../map/types';
 import type { InputCmd } from '../world';
+import { BTN_BLOCK, BTN_DASH } from '../world';
 
 // THE prediction kernel. This exact function runs on the server (authoritative)
 // and on the client (replaying pending inputs during reconciliation). It must
-// stay pure over (state, input, cfg, map, dt) and use only IEEE-deterministic
+// stay pure over (state, input, params, map, dt) and use only IEEE-deterministic
 // math (+ - * / sqrt). No trig, no rng, no wall-clock.
+//
+// M1: dash (edge-triggered displacement, no i-frames) and shield-block move
+// slow live INSIDE the kernel — both change position, so both must be
+// predicted or every dash would rubber-band under latency.
 
 export interface MoveState {
   x: number;
   y: number;
   vx: number;
   vy: number;
+  /** Ticks remaining in the active dash (0 = not dashing). */
+  dashTicks: number;
+  dashDx: number;
+  dashDy: number;
+  /** Cooldown ticks until the next dash. */
+  dashCd: number;
+  /** Previous tick's buttons — dash triggers on the rising edge only. */
+  prevB: number;
+}
+
+export function createMoveState(x: number, y: number): MoveState {
+  return { x, y, vx: 0, vy: 0, dashTicks: 0, dashDx: 0, dashDy: 0, dashCd: 0, prevB: 0 };
+}
+
+/** Everything class-dependent the kernel needs, precomputed to ticks. */
+export interface MoveParams {
+  radius: number;
+  moveSpeed: number;
+  dashSpeed: number;
+  dashDurTicks: number;
+  dashCdTicks: number;
+  hasShield: boolean;
+  blockMoveFactor: number;
+}
+
+export function kitMoveParams(cfg: GameConfig, cls: ClassId): MoveParams {
+  const kit = getKit(cfg, cls);
+  return {
+    radius: cfg.player.radius,
+    moveSpeed: kit.moveSpeed,
+    dashSpeed: kit.dash.speed,
+    dashDurTicks: secToTicks(cfg, kit.dash.durationSec),
+    dashCdTicks: secToTicks(cfg, kit.dash.cooldownSec),
+    hasShield: kit.shield !== undefined,
+    blockMoveFactor: kit.shield?.moveFactor ?? 1,
+  };
+}
+
+/** Single source of truth for "is this player blocking" (kernel + combat + net). */
+export function isBlocking(b: number, hasShield: boolean, dashTicks: number): boolean {
+  return hasShield && (b & BTN_BLOCK) !== 0 && dashTicks <= 0;
 }
 
 const SKIN = 1e-4; // keep circles a hair off walls so re-tests don't jitter
@@ -20,27 +67,65 @@ const SKIN = 1e-4; // keep circles a hair off walls so re-tests don't jitter
 export function stepMovement(
   s: MoveState,
   input: InputCmd,
-  cfg: GameConfig,
+  params: MoveParams,
   map: MapData,
   dt: number,
 ): void {
-  const r = cfg.player.radius;
-  const speed = cfg.player.moveSpeed;
+  const r = params.radius;
 
-  // Desired velocity from input (clamped, normalized when diagonal).
-  let mx = input.mx < -1 ? -1 : input.mx > 1 ? 1 : input.mx;
-  let my = input.my < -1 ? -1 : input.my > 1 ? 1 : input.my;
-  const l = Math.sqrt(mx * mx + my * my);
-  if (l > 1) {
-    mx /= l;
-    my /= l;
+  // Cooldowns tick down unconditionally.
+  if (s.dashCd > 0) s.dashCd--;
+
+  // Dash trigger: rising edge of the dash button, off cooldown, not mid-dash.
+  // Direction = movement input, falling back to aim when standing still.
+  if (
+    (input.b & BTN_DASH) !== 0 &&
+    (s.prevB & BTN_DASH) === 0 &&
+    s.dashCd <= 0 &&
+    s.dashTicks <= 0
+  ) {
+    let dx = input.mx;
+    let dy = input.my;
+    let l = Math.sqrt(dx * dx + dy * dy);
+    if (l < 1e-6) {
+      dx = input.ax;
+      dy = input.ay;
+      l = Math.sqrt(dx * dx + dy * dy);
+    }
+    if (l > 1e-6) {
+      s.dashTicks = params.dashDurTicks;
+      s.dashDx = dx / l;
+      s.dashDy = dy / l;
+      s.dashCd = params.dashCdTicks + params.dashDurTicks;
+    }
   }
-  s.vx = mx * speed;
-  s.vy = my * speed;
+
+  if (s.dashTicks > 0) {
+    // Mid-dash: fixed displacement along the locked direction; input ignored.
+    s.dashTicks--;
+    s.vx = s.dashDx * params.dashSpeed;
+    s.vy = s.dashDy * params.dashSpeed;
+  } else {
+    // Desired velocity from input (clamped, normalized when diagonal).
+    let mx = input.mx < -1 ? -1 : input.mx > 1 ? 1 : input.mx;
+    let my = input.my < -1 ? -1 : input.my > 1 ? 1 : input.my;
+    const l = Math.sqrt(mx * mx + my * my);
+    if (l > 1) {
+      mx /= l;
+      my /= l;
+    }
+    const speed = isBlocking(input.b, params.hasShield, s.dashTicks)
+      ? params.moveSpeed * params.blockMoveFactor
+      : params.moveSpeed;
+    s.vx = mx * speed;
+    s.vy = my * speed;
+  }
 
   // Axis-separated move + resolve: X first, then Y. Produces natural wall slide.
   moveAxis(s, s.vx * dt, 0, r, map);
   moveAxis(s, 0, s.vy * dt, r, map);
+
+  s.prevB = input.b;
 }
 
 function moveAxis(s: MoveState, dx: number, dy: number, r: number, map: MapData): void {
@@ -105,7 +190,11 @@ function anyBlockedInRow(map: MapData, row: number, xMin: number, xMax: number):
  * kernel — remote players aren't predicted, so contact divergence is small and
  * reconciliation absorbs it). 12 players = 66 pairs; plain O(n²) is fine.
  */
-export function pushoutPairs(bodies: MoveState[], r: number, map: MapData): void {
+export function pushoutPairs(
+  bodies: Array<{ x: number; y: number }>,
+  r: number,
+  map: MapData,
+): void {
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
       const a = bodies[i]!;
@@ -139,7 +228,7 @@ export function pushoutPairs(bodies: MoveState[], r: number, map: MapData): void
 }
 
 /** Nudge a circle out of any wall tile it overlaps (post-pushout cleanup). */
-function resolveStaticOverlap(s: MoveState, r: number, map: MapData): void {
+function resolveStaticOverlap(s: { x: number; y: number }, r: number, map: MapData): void {
   const txMin = Math.floor(s.x - r);
   const txMax = Math.floor(s.x + r);
   const tyMin = Math.floor(s.y - r);

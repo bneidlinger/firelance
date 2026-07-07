@@ -10,6 +10,8 @@ import { PROTOCOL_VERSION } from '@shared/net/messages';
 export interface ConnectionOpts {
   url: string;
   name: string;
+  /** Preferred class, sent in the hello (server assigns a default when absent). */
+  cls?: 'fighter' | 'ranger';
   /** Added round-trip latency in ms (half applied each direction). */
   fakelagMs: number;
   /** Random extra per-message delay in ms (uniform, half each direction). */
@@ -42,7 +44,7 @@ export class Connection {
     const ws = new WebSocket(this.opts.url);
     this.ws = ws;
     ws.onopen = () => {
-      this.sendNow({ t: 'hello', v: PROTOCOL_VERSION, name: this.opts.name });
+      this.sendNow({ t: 'hello', v: PROTOCOL_VERSION, name: this.opts.name, cls: this.opts.cls });
       // Pings ride the same fake-latency queue as inputs so the overlay's RTT
       // reflects the simulated conditions, not a shortcut path.
       setInterval(() => this.send({ t: 'ping', ct: performance.now() }), 1000);

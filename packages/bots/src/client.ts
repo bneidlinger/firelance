@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { decodeServerMsg, encodeMsg } from '@shared/net/codec';
 import { PROTOCOL_VERSION } from '@shared/net/messages';
-import { BotBrain } from './brain';
+import { BotBrain, type BotSkill } from './brain';
 
 // A bot over a real WebSocket — exercises the true network path (codec,
 // deflate, backpressure) exactly like a human client does.
@@ -14,8 +14,9 @@ export class WsBot {
     private readonly url: string,
     private readonly name: string,
     seed: number,
+    skill: Partial<BotSkill> = {},
   ) {
-    this.brain = new BotBrain(seed);
+    this.brain = new BotBrain(seed, skill);
   }
 
   connect(): Promise<void> {

@@ -10,8 +10,9 @@ export function encodeMsg(msg: ClientMsg | ServerMsg): string {
   return JSON.stringify(msg);
 }
 
-const CLIENT_KINDS = new Set(['hello', 'input', 'ping']);
-const SERVER_KINDS = new Set(['welcome', 'snap', 'ev', 'pong', 'error']);
+const CLIENT_KINDS = new Set(['hello', 'input', 'class', 'ping']);
+const SERVER_KINDS = new Set(['welcome', 'snap', 'ev', 'score', 'pong', 'error']);
+const CLASS_IDS = new Set(['fighter', 'ranger']);
 
 function parse(data: unknown): DecodeResult<Record<string, unknown>> {
   if (typeof data !== 'string') return { ok: false, error: 'non-string frame' };
@@ -45,10 +46,18 @@ export function decodeClientMsg(data: unknown): DecodeResult<ClientMsg> {
       if (typeof m.name !== 'string' || m.name.length === 0 || m.name.length > 24) {
         return { ok: false, error: 'hello: bad name' };
       }
+      if (m.cls !== undefined && (typeof m.cls !== 'string' || !CLASS_IDS.has(m.cls))) {
+        return { ok: false, error: 'hello: bad cls' };
+      }
       break;
     case 'input':
       for (const f of ['seq', 'tick', 'mx', 'my', 'ax', 'ay', 'b'] as const) {
         if (!isFiniteNumber(m[f])) return { ok: false, error: `input: bad ${f}` };
+      }
+      break;
+    case 'class':
+      if (typeof m.cls !== 'string' || !CLASS_IDS.has(m.cls)) {
+        return { ok: false, error: 'class: bad cls' };
       }
       break;
     case 'ping':
@@ -80,6 +89,11 @@ export function decodeServerMsg(data: unknown): DecodeResult<ServerMsg> {
     case 'ev':
       if (!isFiniteNumber(m.tick) || !Array.isArray(m.events)) {
         return { ok: false, error: 'ev: bad shape' };
+      }
+      break;
+    case 'score':
+      if (!isFiniteNumber(m.tick) || !Array.isArray(m.players) || !Array.isArray(m.squads)) {
+        return { ok: false, error: 'score: bad shape' };
       }
       break;
     case 'pong':

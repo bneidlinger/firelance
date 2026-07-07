@@ -6,17 +6,69 @@ export const defaultConfig: GameConfig = {
   tick: {
     simHz: 30,
     snapshotEveryTicks: 2,
+    scoreEveryTicks: 15, // 2Hz
   },
   match: {
     squads: 4,
     playersPerSquad: 3,
     durationSec: 30 * 60,
     countdownSec: 10,
+    restartSec: 30,
   },
   player: {
     radius: 0.4,
     moveSpeed: 5,
     maxHp: 100,
     respawnSec: 8,
+  },
+  classes: {
+    // Fighter: frontline. Slightly faster than the ranger so melee can close;
+    // tanks arrows behind the shield, deletes rangers in three clean swings.
+    fighter: {
+      maxHp: 130,
+      moveSpeed: 5.2,
+      dash: { speed: 18, durationSec: 0.16, cooldownSec: 3 },
+      melee: {
+        damage: 34,
+        range: 1.8,
+        arcCosHalf: 0.5, // 120°
+        windupSec: 0.22, // the dodgeable telegraph
+        activeSec: 0.15,
+        recoverySec: 0.25,
+        cooldownSec: 0.2, // gap after recovery before the next windup
+      },
+      shield: { damageFactor: 0.3, moveFactor: 0.45, arcCosHalf: 0.5 },
+    },
+    // Ranger: dodgeable-projectile damage at range. Arrow flight time from
+    // 10–12 units (~0.75s) leaves room to strafe on reaction at fakelag 120.
+    ranger: {
+      maxHp: 90,
+      moveSpeed: 5,
+      dash: { speed: 20, durationSec: 0.15, cooldownSec: 2.5 },
+      bow: { damage: 26, speed: 14, cooldownSec: 0.75, ttlSec: 1.6, radius: 0.15 },
+    },
+  },
+  combat: {
+    friendlyFire: false,
+    regenPerSec: 10,
+    regenDelaySec: 6,
+    assistWindowSec: 8,
+  },
+  bounty: {
+    killGold: 50,
+    killBounty: 30,
+    assistBounty: 15,
+    survivalBounty: 1,
+    survivalTickSec: 5,
+    payoutFactor: 1,
+    deathDecayTo: 0.25,
+    freshSpawnSec: 10,
+    repeatKillFactors: [1, 0.5, 0.25, 0],
+    repeatKillWindowSec: 90,
+    tierThresholds: [0, 50, 150, 300, 500, 800],
+  },
+  vision: {
+    radius: 14,
+    forestRadius: 4,
   },
 };

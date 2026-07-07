@@ -1,14 +1,16 @@
-import { configHash, type GameConfig } from '@shared/config';
+import { configHash, type ClassId, type GameConfig } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import { decodeClientMsg, encodeMsg } from '@shared/net/codec';
-import type { HelloMsg, NetEvent, RosterEntry, ServerMsg } from '@shared/net/messages';
+import type { HelloMsg, NetEvent, RosterEntry, ServerMsg, WelcomeMsg } from '@shared/net/messages';
 import { PROTOCOL_VERSION } from '@shared/net/messages';
+import type { SimEvent } from '@shared/sim/events';
 import { stepWorld } from '@shared/sim/step';
+import { isVisibleToSquad } from '@shared/sim/vision';
 import type { InputCmd, Player, PlayerId, World } from '@shared/sim/world';
-import { createWorld, spawnPlayer } from '@shared/sim/world';
+import { createWorld, PHASE_ENDED, SPAWN_OFFSETS, spawnPlayer } from '@shared/sim/world';
 import { acceptInput, createInputSlot, type InputSlot } from './inputs';
 import { ReplayRecorder } from './replay';
-import { buildSquadEnts } from './snapshot';
+import { buildSquadEnts, buildYou } from './snapshot';
 import type { ClientConn } from './transport';
 
 interface Seat {
@@ -17,6 +19,7 @@ interface Seat {
   name: string;
   bot: boolean;
   squad: number;
+  cls: ClassId;
   slot: InputSlot;
 }
 
@@ -25,40 +28,56 @@ export interface MatchOpts {
   map: MapData;
   seed: number;
   record?: boolean;
+  /** Tap on raw per-tick sim events (harness stats/invariants). */
+  onSimEvents?: (tick: number, events: SimEvent[]) => void;
+  /** Called after the match auto-restarts with a fresh world. */
+  onRestart?: (newSeed: number) => void;
 }
-
-// Spawn offsets so squad members don't stack on the spawn tile.
-const SPAWN_OFFSETS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [0.9, 0],
-  [0, 0.9],
-  [0.9, 0.9],
-];
 
 /**
  * One match, one Match instance, no module globals — the multi-room future is
- * additive. Owns the world, seats, input slots, snapshot fan-out, and (when
- * enabled) the replay recorder.
+ * additive. Owns the world, seats, input slots, event fan-out (fog policy
+ * lives HERE), snapshot fan-out, score broadcasts, the auto-restart loop, and
+ * (when enabled) the replay recorder.
  */
 export class Match {
   readonly cfg: GameConfig;
   readonly map: MapData;
-  readonly world: World;
-  readonly recorder: ReplayRecorder | null;
+  private readonly opts: MatchOpts;
   private readonly cfgHashValue: string;
   private readonly seats = new Map<PlayerId, Seat>();
   private stats = { snapshotsSent: 0, inputsAccepted: 0, bytesSent: 0 };
+  private pendingEvents: SimEvent[] = [];
+  private currentSeed: number;
+  private worldState: World;
+  private recorderState: ReplayRecorder | null;
 
   constructor(opts: MatchOpts) {
+    this.opts = opts;
     this.cfg = opts.cfg;
     this.map = opts.map;
-    this.world = createWorld(opts.seed, opts.cfg);
+    this.currentSeed = opts.seed;
+    this.worldState = createWorld(opts.seed, opts.cfg, opts.map);
     this.cfgHashValue = configHash(opts.cfg);
-    this.recorder = opts.record ? new ReplayRecorder(opts.seed, opts.cfg.name, opts.map.id) : null;
+    this.recorderState = opts.record
+      ? new ReplayRecorder(opts.seed, opts.cfg.name, opts.map.id)
+      : null;
+  }
+
+  get world(): World {
+    return this.worldState;
+  }
+
+  get recorder(): ReplayRecorder | null {
+    return this.recorderState;
   }
 
   get playerCount(): number {
     return this.seats.size;
+  }
+
+  get seed(): number {
+    return this.currentSeed;
   }
 
   getStats(): { snapshotsSent: number; inputsAccepted: number; bytesSent: number } {
@@ -91,8 +110,15 @@ export class Match {
           acceptInput(seat.slot, msg);
           this.stats.inputsAccepted++;
           break;
+        case 'class': {
+          seat.cls = msg.cls;
+          const p = this.worldState.players.get(seat.id);
+          if (p) p.pendingCls = msg.cls;
+          this.recorderState?.recordClass(seat.id, msg.cls, this.worldState.tick);
+          break;
+        }
         case 'ping':
-          this.send(seat, { t: 'pong', ct: msg.ct, tick: this.world.tick });
+          this.send(seat, { t: 'pong', ct: msg.ct, tick: this.worldState.tick });
           break;
         case 'hello':
           break; // duplicate hello: ignore
@@ -120,55 +146,85 @@ export class Match {
 
     const squad = this.pickSquad();
     const memberIdx = this.squadMembers(squad).length;
-    const spawn = this.map.spawns[squad] ?? this.map.spawns[0]!;
-    const [ox, oy] = SPAWN_OFFSETS[memberIdx % SPAWN_OFFSETS.length]!;
-    const name = hello.name.replace(/[^\w \-']/g, '').slice(0, 16) || `player${this.world.nextId}`;
+    // Default composition when no class requested: 1 fighter + rangers.
+    const cls: ClassId = hello.cls ?? (memberIdx === 0 ? 'fighter' : 'ranger');
+    const name =
+      hello.name.replace(/[^\w \-']/g, '').slice(0, 16) || `player${this.worldState.nextId}`;
 
-    const player = spawnPlayer(
-      this.world,
-      squad,
-      name,
-      hello.bot === true,
-      spawn.x + ox,
-      spawn.y + oy,
-    );
+    const player = this.spawnSeatPlayer(squad, name, hello.bot === true, cls, memberIdx);
     const seat: Seat = {
       id: player.id,
       conn,
       name,
       bot: hello.bot === true,
       squad,
+      cls,
       slot: createInputSlot(),
     };
     this.seats.set(player.id, seat);
-    this.recorder?.recordJoin(player);
+    this.recorderState?.recordJoin(player);
 
-    this.send(seat, {
+    this.send(seat, this.buildWelcome(player.id, squad));
+    this.broadcastEvent(
+      {
+        k: 'playerJoined',
+        tk: this.worldState.tick,
+        id: player.id,
+        squad,
+        name,
+        bot: seat.bot,
+      },
+      player.id,
+    );
+    return player.id;
+  }
+
+  /** Players spawn at their squad keep (respawn point) with a small offset. */
+  private spawnSeatPlayer(
+    squad: number,
+    name: string,
+    bot: boolean,
+    cls: ClassId,
+    memberIdx: number,
+  ): Player {
+    const keep = this.worldState.squads[squad]!;
+    const [ox, oy] = SPAWN_OFFSETS[memberIdx % SPAWN_OFFSETS.length]!;
+    return spawnPlayer(
+      this.worldState,
+      this.cfg,
+      squad,
+      name,
+      bot,
+      cls,
+      keep.keepX + ox,
+      keep.keepY + oy,
+    );
+  }
+
+  private buildWelcome(playerId: PlayerId, squad: number): WelcomeMsg {
+    return {
       t: 'welcome',
-      playerId: player.id,
+      playerId,
       squadId: squad,
       mapId: this.map.id,
       cfgName: this.cfg.name,
       cfgHash: this.cfgHashValue,
-      tick: this.world.tick,
+      tick: this.worldState.tick,
       tickRate: this.cfg.tick.simHz,
       snapRate: this.cfg.tick.simHz / this.cfg.tick.snapshotEveryTicks,
+      phase: this.worldState.phase,
+      phaseEndsTick: this.worldState.phaseEndsTick,
       roster: this.roster(),
-    });
-    this.broadcastEvent(
-      { k: 'playerJoined', id: player.id, squad, name, bot: seat.bot },
-      player.id,
-    );
-    return player.id;
+    };
   }
 
   private leave(id: PlayerId): void {
     const seat = this.seats.get(id);
     if (!seat) return;
     this.seats.delete(id);
-    this.world.players.delete(id);
-    this.recorder?.recordLeave(id, this.world.tick);
-    this.broadcastEvent({ k: 'playerLeft', id });
+    this.worldState.players.delete(id);
+    this.recorderState?.recordLeave(id, this.worldState.tick);
+    this.broadcastEvent({ k: 'playerLeft', tk: this.worldState.tick, id });
   }
 
   private pickSquad(): number {
@@ -197,7 +253,7 @@ export class Match {
     }));
   }
 
-  /** Advance the world one tick; fan out snapshots on snapshot ticks. */
+  /** Advance the world one tick; fan out events/snapshots/score on schedule. */
   tick(): void {
     const inputs = new Map<PlayerId, InputCmd>();
     for (const seat of this.seats.values()) {
@@ -207,11 +263,26 @@ export class Match {
         seat.slot.latest = null; // applied; sim keeps it on the player from here
       }
     }
-    this.recorder?.recordTick(this.world.tick + 1, inputs);
-    stepWorld(this.world, inputs, this.cfg, this.map);
+    this.recorderState?.recordTick(this.worldState.tick + 1, inputs);
+    const events = stepWorld(this.worldState, inputs, this.cfg, this.map);
+    if (events.length > 0) {
+      this.opts.onSimEvents?.(this.worldState.tick, events);
+      this.pendingEvents.push(...events);
+    }
 
-    if (this.world.tick % this.cfg.tick.snapshotEveryTicks === 0) {
+    if (this.worldState.tick % this.cfg.tick.snapshotEveryTicks === 0) {
       this.sendSnapshots();
+      this.pendingEvents = [];
+    }
+    if (this.worldState.tick % this.cfg.tick.scoreEveryTicks === 0) {
+      this.sendScore();
+    }
+    if (
+      this.worldState.phase === PHASE_ENDED &&
+      this.worldState.tick >= this.worldState.phaseEndsTick &&
+      this.seats.size > 0
+    ) {
+      this.restart();
     }
   }
 
@@ -219,15 +290,19 @@ export class Match {
     for (let squad = 0; squad < this.cfg.match.squads; squad++) {
       const members = this.squadMembers(squad);
       if (members.length === 0) continue;
-      const ents = buildSquadEnts(this.world, squad, this.cfg);
+      const events = this.filterEventsForSquad(squad);
+      const ents = buildSquadEnts(this.worldState, this.map, this.cfg, squad);
       for (const seat of members) {
-        const p = this.world.players.get(seat.id);
+        const p = this.worldState.players.get(seat.id);
         if (!p) continue;
+        if (events.length > 0) {
+          this.send(seat, { t: 'ev', tick: this.worldState.tick, events });
+        }
         this.send(seat, {
           t: 'snap',
-          tick: this.world.tick,
+          tick: this.worldState.tick,
           ackSeq: seat.slot.appliedSeq,
-          you: { x: p.x, y: p.y, vx: p.vx, vy: p.vy },
+          you: buildYou(this.worldState, p),
           ents,
         });
         this.stats.snapshotsSent++;
@@ -235,10 +310,109 @@ export class Match {
     }
   }
 
+  /**
+   * The event fog policy. Kill/phase/end are global (bounty is public info by
+   * design); respawns are squad-private; projectiles, swings, and hits are
+   * positional — with own-squad involvement always visible.
+   */
+  private filterEventsForSquad(squadId: number): NetEvent[] {
+    const out: NetEvent[] = [];
+    const w = this.worldState;
+    const visible = (x: number, y: number): boolean =>
+      isVisibleToSquad(w, this.map, this.cfg, squadId, x, y);
+    for (const ev of this.pendingEvents) {
+      switch (ev.k) {
+        case 'kill':
+        case 'phase':
+        case 'matchEnd':
+          out.push(ev);
+          break;
+        case 'respawn':
+          if (ev.squad === squadId) out.push(ev);
+          break;
+        case 'projSpawn': {
+          if (ev.squad === squadId) {
+            out.push(ev);
+            break;
+          }
+          // Fairness rule: an arrow is announced if ANY point of its flight
+          // path is visible — you can always see (and dodge) what can hit you.
+          const flight = (ev.speed * ev.ttl) / this.cfg.tick.simHz;
+          let seen = false;
+          for (let f = 0; f <= 1 && !seen; f += 0.25) {
+            seen = visible(ev.x + ev.dx * flight * f, ev.y + ev.dy * flight * f);
+          }
+          if (seen) out.push(ev);
+          break;
+        }
+        case 'projEnd':
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'swing':
+          if (visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'hit': {
+          const attacker = w.players.get(ev.attacker);
+          const victim = w.players.get(ev.victim);
+          if (attacker?.squad === squadId || victim?.squad === squadId || visible(ev.x, ev.y)) {
+            out.push(ev);
+          }
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  private sendScore(): void {
+    const w = this.worldState;
+    const msg: ServerMsg = {
+      t: 'score',
+      tick: w.tick,
+      phase: w.phase,
+      phaseEndsTick: w.phaseEndsTick,
+      players: [...w.players.values()].map((p) => ({
+        id: p.id,
+        b: p.bounty,
+        k: p.kills,
+        d: p.deaths,
+        a: p.assists,
+      })),
+      squads: w.squads.map((s) => ({ id: s.id, g: s.keepGold })),
+    };
+    for (const seat of this.seats.values()) this.send(seat, msg);
+  }
+
+  /** End screen elapsed: rebuild the world, re-seat everyone, fresh welcomes. */
+  private restart(): void {
+    this.currentSeed++;
+    this.worldState = createWorld(this.currentSeed, this.cfg, this.map);
+    this.pendingEvents = [];
+    this.recorderState = this.opts.record
+      ? new ReplayRecorder(this.currentSeed, this.cfg.name, this.map.id)
+      : null;
+
+    const oldSeats = [...this.seats.values()];
+    this.seats.clear();
+    const memberCount = new Array<number>(this.cfg.match.squads).fill(0);
+    for (const seat of oldSeats) {
+      if (seat.conn.closed) continue;
+      const memberIdx = memberCount[seat.squad]!++;
+      const player = this.spawnSeatPlayer(seat.squad, seat.name, seat.bot, seat.cls, memberIdx);
+      seat.id = player.id;
+      this.seats.set(player.id, seat);
+      this.recorderState?.recordJoin(player);
+    }
+    for (const seat of this.seats.values()) {
+      this.send(seat, this.buildWelcome(seat.id, seat.squad));
+    }
+    this.opts.onRestart?.(this.currentSeed);
+  }
+
   private broadcastEvent(event: NetEvent, exceptId?: PlayerId): void {
     for (const seat of this.seats.values()) {
       if (seat.id === exceptId) continue;
-      this.send(seat, { t: 'ev', tick: this.world.tick, events: [event] });
+      this.send(seat, { t: 'ev', tick: this.worldState.tick, events: [event] });
     }
   }
 

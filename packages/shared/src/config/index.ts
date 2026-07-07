@@ -1,7 +1,17 @@
 import type { DeepPartial, GameConfig } from './types';
 import { defaultConfig } from './default';
 
-export type { GameConfig, GameConfigOverrides } from './types';
+export type {
+  ClassId,
+  ClassKit,
+  GameConfig,
+  GameConfigOverrides,
+  MeleeConfig,
+  BowConfig,
+  DashConfig,
+  ShieldConfig,
+} from './types';
+export { getKit, secToTicks } from './types';
 export { defaultConfig } from './default';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -36,7 +46,9 @@ export const prototypeConfig: GameConfig = defineConfig({
 /** Tiny preset for CI smoke matches (2–3 min game time, instant start). */
 export const smokeConfig: GameConfig = defineConfig({
   name: 'smoke',
-  match: { durationSec: 150, countdownSec: 0 },
+  match: { durationSec: 150, countdownSec: 0, restartSec: 5 },
+  // Fast respawns keep combat flowing in compressed matches.
+  player: { respawnSec: 4 },
 });
 
 const presets: Record<string, GameConfig> = {
