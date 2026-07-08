@@ -1,7 +1,8 @@
+import { getConfigPreset } from '@shared/config';
 import { runInProcessMatch } from '../packages/server/src/harness';
 
 // CLI smoke match: in-process turbo run + determinism double-run + report.
-//   npm run match:smoke -- --bots 4 --seconds 60 --seed 12345
+//   npm run match:smoke -- --bots 4 --seconds 60 --seed 12345 --config smoke
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -11,14 +12,17 @@ function arg(name: string, fallback: string): string {
 const bots = Number(arg('bots', '4'));
 const seconds = Number(arg('seconds', '60'));
 const seed = Number(arg('seed', '12345'));
+const cfg = getConfigPreset(arg('config', 'smoke'));
 
 async function main(): Promise<void> {
-  console.log(`[smoke] running ${bots} bots for ${seconds} sim-seconds (seed ${seed})...`);
-  const a = await runInProcessMatch({ bots, simSeconds: seconds, seed });
+  console.log(
+    `[smoke] running ${bots} bots for ${seconds} sim-seconds (seed ${seed}, config ${cfg.name})...`,
+  );
+  const a = await runInProcessMatch({ bots, simSeconds: seconds, seed, cfg });
   console.log(
     `[smoke] run A: ${a.ticks} ticks in ${a.wallMs}ms wall (${Math.round(a.ticks / (a.wallMs / 1000))} ticks/s)`,
   );
-  const b = await runInProcessMatch({ bots, simSeconds: seconds, seed });
+  const b = await runInProcessMatch({ bots, simSeconds: seconds, seed, cfg });
   console.log(`[smoke] run B: ${b.ticks} ticks in ${b.wallMs}ms wall`);
 
   const violations = [...a.violations];

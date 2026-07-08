@@ -9,6 +9,7 @@ import { pushoutPairs, stepMovement } from './systems/movement';
 import { carrySpeedFactor } from './systems/economy';
 import { stepAttacks } from './systems/attacks';
 import { stepProjectiles } from './systems/projectiles';
+import { stepBombs } from './systems/bombs';
 import { stepBanking } from './systems/banking';
 import { stepLifecycle } from './systems/lifecycle';
 import { stepPhase } from './systems/phase';
@@ -19,10 +20,11 @@ import { stepPhase } from './systems/phase';
  * steps the whole world.
  *
  * System order:
- *   applyInputs → movement → pushout → attacks → projectiles → banking
- *   (withdraw/deposit/pickup; after combat so same-tick damage breaks the
- *   channel) → lifecycle (regen/bounty/respawn; after banking so a player who
- *   died this tick never banks) → phase (countdown/live/ended)
+ *   applyInputs → movement → pushout → attacks → projectiles → bombs
+ *   (throws + blasts; structure damage may destroy keeps) → banking
+ *   (withdraw/deposit/pickup/restock/rebuild; after combat so same-tick
+ *   damage breaks channels) → lifecycle (regen/bounty/respawn, gated on a
+ *   living keep) → phase (countdown/live/elimination/ended)
  * Ended worlds freeze everything except the phase clock — the end screen is a
  * still frame until the server rebuilds the match.
  */
@@ -59,6 +61,7 @@ export function stepWorld(
 
     stepAttacks(world, cfg, map, events);
     stepProjectiles(world, cfg, map, events);
+    stepBombs(world, cfg, events);
     stepBanking(world, cfg, map, events);
     stepLifecycle(world, cfg, events);
   }

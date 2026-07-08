@@ -6,6 +6,48 @@ import { rngInt } from '@shared/math/rng';
 // Grid A* over the shared map. 8-directional with corner-cut prevention.
 // 96×96 = 9216 nodes; a simple binary heap is more than enough.
 
+/**
+ * True when no WALK-blocking tile lies between the two points (Amanatides–Woo,
+ * same traversal as vision's tileRayClear but over the walk grid). The
+ * distinction matters at rivers: water is see-through but not walkable —
+ * direct-steering on a VISION ray marches bots into the bank forever.
+ */
+export function walkRayClear(
+  map: MapData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): boolean {
+  let tx = Math.floor(x0);
+  let ty = Math.floor(y0);
+  const txEnd = Math.floor(x1);
+  const tyEnd = Math.floor(y1);
+  if (tx === txEnd && ty === tyEnd) return true;
+
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const stepX = dx > 0 ? 1 : -1;
+  const stepY = dy > 0 ? 1 : -1;
+  const tDeltaX = dx !== 0 ? Math.abs(1 / dx) : Number.POSITIVE_INFINITY;
+  const tDeltaY = dy !== 0 ? Math.abs(1 / dy) : Number.POSITIVE_INFINITY;
+  let tMaxX = dx !== 0 ? (dx > 0 ? (tx + 1 - x0) / dx : (tx - x0) / dx) : Number.POSITIVE_INFINITY;
+  let tMaxY = dy !== 0 ? (dy > 0 ? (ty + 1 - y0) / dy : (ty - y0) / dy) : Number.POSITIVE_INFINITY;
+
+  for (let i = map.width + map.height; i > 0; i--) {
+    if (tMaxX < tMaxY) {
+      tMaxX += tDeltaX;
+      tx += stepX;
+    } else {
+      tMaxY += tDeltaY;
+      ty += stepY;
+    }
+    if (isWalkBlocked(map, tx, ty)) return false;
+    if (tx === txEnd && ty === tyEnd) return true;
+  }
+  return false;
+}
+
 interface Heap {
   idx: number[];
   f: number[];

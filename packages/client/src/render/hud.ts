@@ -22,6 +22,7 @@ export class Hud {
   private killfeedLines: Array<{ el: HTMLElement; bornMs: number }> = [];
   private lastScore: ScoreMsg | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private alarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(cfg: GameConfig) {
     this.cfg = cfg;
@@ -39,11 +40,13 @@ export class Hud {
     el('carry').style.display = 'none';
     el('bankwrap').style.display = 'none';
     el('prompt').style.display = 'none';
+    el('alarm').style.opacity = '0';
+    el('exile').style.display = 'none';
   }
 
   // ---- own state -----------------------------------------------------------
 
-  you(you: YouSnap, killerName: string | null): void {
+  you(you: YouSnap, killerName: string | null, deadNote: string | null = null): void {
     const kit = getKit(this.cfg, you.cls);
     const frac = Math.max(0, Math.min(1, you.hp / kit.maxHp));
     const fill = el('hpfill');
@@ -64,6 +67,13 @@ export class Hud {
     sb.textContent = `Bounty ${you.bounty} · ${TIER_NAMES[tier]}`;
     sb.style.color = TIER_COLORS[tier]!;
 
+    // Firebomb satchel: filled/empty pips + the throw cooldown.
+    const bombs = el('bombs');
+    const capacity = this.cfg.firebomb.carried;
+    const pips = '●'.repeat(you.bombs) + '○'.repeat(Math.max(0, capacity - you.bombs));
+    bombs.textContent =
+      you.bombCd > 0 ? `🔥${pips} ${(you.bombCd / this.cfg.tick.simHz).toFixed(1)}s` : `🔥${pips}`;
+
     // Carried load + how much it's slowing you (the risk you're holding).
     const carry = el('carry');
     if (you.carried > 0) {
@@ -74,11 +84,19 @@ export class Hud {
       carry.style.display = 'none';
     }
 
-    // Deposit channel progress bar (only while channeling).
+    // Channel progress bar: deposit (gold) or rebuild (red) — never both.
     const wrap = el('bankwrap');
     if (you.bankTicks > 0) {
       const total = secToTicks(this.cfg, this.cfg.banking.bankChannelSec);
-      el('bankfill').style.width = `${Math.min(100, (you.bankTicks / total) * 100)}%`;
+      const fill = el('bankfill');
+      fill.style.width = `${Math.min(100, (you.bankTicks / total) * 100)}%`;
+      fill.style.background = '#f2d68c';
+      wrap.style.display = 'block';
+    } else if (you.rebuildTicks > 0) {
+      const total = secToTicks(this.cfg, this.cfg.keep.rebuildChannelSec);
+      const fill = el('bankfill');
+      fill.style.width = `${Math.min(100, (you.rebuildTicks / total) * 100)}%`;
+      fill.style.background = '#f05a4d';
       wrap.style.display = 'block';
     } else {
       wrap.style.display = 'none';
@@ -90,9 +108,9 @@ export class Hud {
     el('deathmsg').style.display = dead ? 'block' : 'none';
     if (dead) {
       const secs = Math.max(0, you.respIn / this.cfg.tick.simHz);
+      const sub = deadNote ?? `respawning in ${secs.toFixed(1)}s — press 1 Fighter · 2 Ranger`;
       el('deathmsg').innerHTML =
-        `${killerName ? `Slain by ${esc(killerName)}` : 'Slain'}` +
-        `<div class="sub">respawning in ${secs.toFixed(1)}s — press 1 Fighter · 2 Ranger</div>`;
+        `${killerName ? `Slain by ${esc(killerName)}` : 'Slain'}<div class="sub">${sub}</div>`;
     }
   }
 
@@ -118,6 +136,26 @@ export class Hud {
     } else {
       if (p.innerHTML !== html) p.innerHTML = html;
       p.style.display = 'block';
+    }
+  }
+
+  /** The under-attack klaxon banner; fades on its own. */
+  alarm(text: string): void {
+    const a = el('alarm');
+    a.textContent = text;
+    a.style.opacity = '1';
+    if (this.alarmTimer) clearTimeout(this.alarmTimer);
+    this.alarmTimer = setTimeout(() => (a.style.opacity = '0'), 2600);
+  }
+
+  /** Persistent exile strip under the topbar; null hides it. */
+  exile(html: string | null): void {
+    const x = el('exile');
+    if (html === null) {
+      x.style.display = 'none';
+    } else {
+      if (x.innerHTML !== html) x.innerHTML = html;
+      x.style.display = 'block';
     }
   }
 
@@ -156,6 +194,11 @@ export class Hud {
     );
   }
 
+  /** Map-level news (keep falls, rebuilds, eliminations) into the feed. */
+  news(html: string): void {
+    this.feedLine(html);
+  }
+
   private feedLine(html: string): void {
     const div = document.createElement('div');
     div.innerHTML = html;
@@ -179,7 +222,10 @@ export class Hud {
           s.g !== undefined
             ? ` <span style="color:#b9ad98">(keep ${s.g}g · ${s.wd ?? 0} free)</span>`
             : '';
-        return `<span style="color:${SQUAD_CSS[s.id]}">🏦 ${s.bk}g${own}</span>`;
+        // Keep status is public: standing / on fire (<50%) / fallen / squad out.
+        const keep = s.el ? '💀' : s.kh <= 0 ? '✖' : s.kh < this.cfg.keep.maxHp * 0.5 ? '🔥' : '';
+        const style = s.el ? 'opacity:0.5;text-decoration:line-through' : '';
+        return `<span style="color:${SQUAD_CSS[s.id]};${style}">🏦 ${s.bk}g${keep ? ` ${keep}` : ''}${own}</span>`;
       })
       .join('');
 
@@ -224,7 +270,13 @@ export class Hud {
 
   endScreen(
     winners: number[],
-    standings: Array<{ squad: number; banked: number; gold: number; kills: number }>,
+    standings: Array<{
+      squad: number;
+      banked: number;
+      gold: number;
+      kills: number;
+      eliminated: boolean;
+    }>,
     roster: Map<number, RosterEntry>,
     ownSquad: number,
   ): void {
@@ -240,8 +292,10 @@ export class Hud {
           .map((r) => esc(r.name))
           .join(', ');
         const you = s.squad === ownSquad ? ' ◀ you' : '';
+        const rowStyle = s.eliminated ? 'opacity:0.45;text-decoration:line-through' : '';
+        const fate = s.eliminated ? ' 💀' : '';
         return (
-          `<tr><td style="color:${SQUAD_CSS[s.squad]}">${names[s.squad]}</td>` +
+          `<tr style="${rowStyle}"><td style="color:${SQUAD_CSS[s.squad]}">${names[s.squad]}${fate}</td>` +
           `<td style="color:#f2d68c">${s.banked}g</td>` +
           `<td style="color:#b9ad98">${s.gold}g</td><td>${s.kills}</td>` +
           `<td style="color:#b9ad98">${members}${you}</td></tr>`

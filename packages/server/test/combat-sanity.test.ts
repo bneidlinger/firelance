@@ -23,13 +23,16 @@ describe('12-bot compressed match sanity (3 seeds)', () => {
         expect(shots, `${p.name} (${p.cls}) never attacked`).toBeGreaterThan(0);
       }
 
-      // Ranger arrows land, but nowhere near aimbot rates (dodgeability proxy).
+      // Ranger arrows land, but nowhere near aimbot rates (dodgeability
+      // proxy). Ceiling is 0.62 as of M3: siegers deliberately orbit in the
+      // open and eat arrows while bombing — willing targets inflate rates
+      // without saying anything about dodgeability for players who dodge.
       for (const p of r.playerSummary.filter((p) => p.cls === 'ranger')) {
         const shots = r.combat.shotsByPlayer[p.name] ?? 0;
         if (shots < 20) continue; // too few shots for a stable rate
         const rate = (r.combat.hitsByPlayer[p.name] ?? 0) / shots;
         expect(rate, `${p.name} hit rate ${(rate * 100).toFixed(0)}%`).toBeGreaterThan(0.05);
-        expect(rate, `${p.name} hit rate ${(rate * 100).toFixed(0)}%`).toBeLessThan(0.55);
+        expect(rate, `${p.name} hit rate ${(rate * 100).toFixed(0)}%`).toBeLessThan(0.62);
       }
 
       // No squad shut out; combat actually happened at scale.

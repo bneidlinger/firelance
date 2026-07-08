@@ -441,15 +441,48 @@ export class Match {
     const w = this.worldState;
     const visible = (x: number, y: number): boolean =>
       isVisibleToSquad(w, this.map, this.cfg, squadId, x, y);
+    const spectator = w.squads[squadId]?.eliminated === true;
     for (const ev of this.pendingEvents) {
+      if (spectator) {
+        out.push(ev); // the eliminated see everything — they're pure audience
+        continue;
+      }
       switch (ev.k) {
         case 'kill':
         case 'phase':
         case 'matchEnd':
         case 'banked':
+        case 'keepDestroyed': // the map-level plunder bell (doc: major event)
+        case 'keepRebuilt':
+        case 'eliminated':
           out.push(ev);
           break;
         case 'sackTaken':
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'keepHit':
+          // Owners always hear their alarm; others see it only with eyes on.
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'bombSpawn': {
+          if (ev.squad === squadId) {
+            out.push(ev);
+            break;
+          }
+          // Same fairness rule as arrows: announced if any point of the lob
+          // (or its landing circle) is visible — you can dodge what can hit you.
+          if (visible(ev.x, ev.y) || visible(ev.tx, ev.ty)) {
+            out.push(ev);
+            break;
+          }
+          const seen =
+            visible(ev.x + (ev.tx - ev.x) * 0.5, ev.y + (ev.ty - ev.y) * 0.5) ||
+            visible(ev.x + (ev.tx - ev.x) * 0.25, ev.y + (ev.ty - ev.y) * 0.25) ||
+            visible(ev.x + (ev.tx - ev.x) * 0.75, ev.y + (ev.ty - ev.y) * 0.75);
+          if (seen) out.push(ev);
+          break;
+        }
+        case 'bombEnd':
           if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
           break;
         case 'respawn':
@@ -512,8 +545,16 @@ export class Match {
         players,
         squads: w.squads.map((s) =>
           s.id === squad
-            ? { id: s.id, bk: s.bankedGold, g: s.keepGold, wd: withdrawableGold(this.cfg, s) }
-            : { id: s.id, bk: s.bankedGold },
+            ? {
+                id: s.id,
+                bk: s.bankedGold,
+                kh: s.keepHp,
+                el: s.eliminated,
+                g: s.keepGold,
+                wd: withdrawableGold(this.cfg, s),
+                rb: s.rebuildsLeft,
+              }
+            : { id: s.id, bk: s.bankedGold, kh: s.keepHp, el: s.eliminated },
         ),
       };
       for (const seat of members) this.send(seat, msg);

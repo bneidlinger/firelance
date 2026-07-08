@@ -67,6 +67,26 @@ export const defaultConfig: GameConfig = {
     repeatKillWindowSec: 90,
     tierThresholds: [0, 50, 150, 300, 500, 800],
   },
+  keep: {
+    maxHp: 1200,
+    radius: 1.3,
+    meleeDamage: 8,
+    alarmCooldownSec: 5,
+    rebuildCost: 250,
+    rebuildChannelSec: 8,
+    rebuildHpFactor: 0.6,
+  },
+  // ~8 committed bombs to crack a keep (3 besiegers ≈ 40s under fire, plus
+  // restock trips) — a siege is a decision, not a drive-by.
+  firebomb: {
+    damage: 150,
+    playerDamage: 15,
+    radius: 1.6,
+    range: 7,
+    flightSec: 0.6,
+    cooldownSec: 3,
+    carried: 2,
+  },
   banking: {
     withdrawPerSec: 300,
     reserveFraction: 0.25,

@@ -6,6 +6,7 @@ import type { Player, World } from '../world';
 import { ATK_ACTIVE, ATK_IDLE, ATK_RECOVERY, ATK_WINDUP, BTN_FIRE, PHASE_LIVE } from '../world';
 import { tileRayClear } from '../vision';
 import { applyDamage } from './combat';
+import { damageKeep, keepsInRange } from './keep';
 import { isBlocking } from './movement';
 
 // Attack intent → attack state machines → damage/projectiles.
@@ -108,6 +109,25 @@ function meleeHitTest(
     if (!tileRayClear(map, attacker.x, attacker.y, victim.x, victim.y)) continue;
     attacker.atkHitIds.push(victim.id);
     applyDamage(world, cfg, attacker, victim, melee.damage, 'melee', events);
+  }
+
+  // Desperation chip vs enemy keeps: swords CAN bring one down, at ~20x the
+  // bomb count — the firebomb stays the siege tool. Keeps use negative pseudo
+  // ids in atkHitIds so a swing still lands once per target.
+  for (const keep of keepsInRange(world, cfg, attacker.x, attacker.y, reach, attacker.squad)) {
+    const pseudoId = -(keep.id + 1);
+    if (attacker.atkHitIds.includes(pseudoId)) continue;
+    const dx = keep.keepX - attacker.x;
+    const dy = keep.keepY - attacker.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 1e-12) {
+      const d = Math.sqrt(d2);
+      const dot = (dx / d) * attacker.atkDirX + (dy / d) * attacker.atkDirY;
+      if (dot < melee.arcCosHalf) continue;
+    }
+    if (!tileRayClear(map, attacker.x, attacker.y, keep.keepX, keep.keepY)) continue;
+    attacker.atkHitIds.push(pseudoId);
+    damageKeep(world, cfg, keep, cfg.keep.meleeDamage, events);
   }
 }
 

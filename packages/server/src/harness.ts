@@ -43,6 +43,12 @@ export interface CombatStats {
   sacksDropped: number;
   /** Ground sacks scooped up. */
   sacksLooted: number;
+  /** Firebombs thrown. */
+  bombsThrown: number;
+  /** Keeps destroyed / emergency rebuilds completed / squads eliminated. */
+  keepsDestroyed: number;
+  rebuilds: number;
+  eliminations: number;
 }
 
 export interface HarnessResult {
@@ -84,6 +90,10 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
     bankDeposits: 0,
     sacksDropped: 0,
     sacksLooted: 0,
+    bombsThrown: 0,
+    keepsDestroyed: 0,
+    rebuilds: 0,
+    eliminations: 0,
   };
   let restarts = 0;
 
@@ -91,9 +101,30 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
   const bump = (rec: Record<string, number>, key: string): void => {
     rec[key] = (rec[key] ?? 0) + 1;
   };
+  /** Squads whose keep has been destroyed in the CURRENT world (reset on restart)
+   *  — the strong reserve-floor invariant only applies before that. */
+  const destroyedEver = new Set<number>();
   const onSimEvents = (_tick: number, events: SimEvent[]): void => {
     for (const ev of events) {
       switch (ev.k) {
+        case 'bombSpawn':
+          combat.bombsThrown++;
+          break;
+        case 'keepDestroyed':
+          combat.keepsDestroyed++;
+          destroyedEver.add(ev.squad);
+          break;
+        case 'keepRebuilt':
+          combat.rebuilds++;
+          break;
+        case 'eliminated':
+          combat.eliminations++;
+          break;
+        case 'respawn':
+          if (match.world.squads[ev.squad]!.keepHp <= 0) {
+            violations.push(`tick ${ev.tk}: RESPAWN WITHOUT A KEEP (squad ${ev.squad})`);
+          }
+          break;
         case 'projSpawn':
           bump(combat.shotsByPlayer, nameOf(ev.owner));
           break;
@@ -130,7 +161,10 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
     seed: opts.seed,
     record: true,
     onSimEvents,
-    onRestart: () => restarts++,
+    onRestart: () => {
+      restarts++;
+      destroyedEver.clear(); // fresh world, fresh keeps
+    },
   });
 
   const { createLocalPair } = await import('./transport');
@@ -195,17 +229,36 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
           violations.push(`tick ${w.tick}: dead player ${p.id} still carrying ${p.carried}`);
         }
       }
-      // The 75% rule as a standing invariant: the reserve NEVER leaves the keep
-      // (holds until M3 introduces keep destruction, which spills it by design).
+      // The 75% rule as a standing invariant: withdrawals never take the keep
+      // below the reserve. Destruction spills it and a rebuild seeds below it
+      // — both by design — so the strong check applies only to squads whose
+      // keep has never fallen this world.
       for (const s of w.squads) {
         const reserve = Math.ceil(s.lifetimeGold * cfg.banking.reserveFraction);
-        if (s.keepGold < reserve) {
+        if (!destroyedEver.has(s.id) && s.keepGold < reserve) {
           violations.push(
             `tick ${w.tick}: squad ${s.id} keep ${s.keepGold} below reserve ${reserve}`,
           );
         }
+        if (s.keepGold < 0) violations.push(`tick ${w.tick}: squad ${s.id} negative keep gold`);
         if (s.bankedGold < 0) violations.push(`tick ${w.tick}: squad ${s.id} negative bank`);
+        if (s.keepHp < 0 || s.keepHp > cfg.keep.maxHp) {
+          violations.push(`tick ${w.tick}: squad ${s.id} keepHp ${s.keepHp} out of range`);
+        }
+        if (s.rebuildsLeft < 0 || s.rebuildsLeft > 1) {
+          violations.push(`tick ${w.tick}: squad ${s.id} rebuildsLeft ${s.rebuildsLeft}`);
+        }
+        if (s.eliminated && s.keepHp > 0) {
+          violations.push(`tick ${w.tick}: squad ${s.id} eliminated WITH a living keep`);
+        }
       }
+      const maxFlight = Math.ceil(cfg.firebomb.flightSec * cfg.tick.simHz) + 1;
+      for (const b of w.bombs.values()) {
+        if (b.landTick - w.tick > maxFlight) {
+          violations.push(`tick ${w.tick}: bomb ${b.id} flight too long`);
+        }
+      }
+      if (w.bombs.size > 60) violations.push(`tick ${w.tick}: ${w.bombs.size} bombs alive (leak?)`);
       for (const sack of w.sacks.values()) {
         if (sack.gold <= 0) violations.push(`tick ${w.tick}: sack ${sack.id} gold ${sack.gold}`);
         if (!Number.isFinite(sack.x + sack.y)) {

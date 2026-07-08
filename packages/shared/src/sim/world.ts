@@ -23,6 +23,7 @@ export const BTN_FIRE = 1;
 export const BTN_BLOCK = 2;
 export const BTN_DASH = 4;
 export const BTN_INTERACT = 8;
+export const BTN_BOMB = 16;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 
@@ -94,6 +95,14 @@ export interface Player {
   carried: number;
   /** Deposit channel progress in ticks (0 = not channeling). */
   bankTicks: number;
+  /** Emergency-rebuild channel progress in ticks (0 = not channeling). */
+  rebuildTicks: number;
+  /** Firebombs on hand (restocked inside your own keep circle). */
+  bombs: number;
+  /** Cooldown ticks until the next bomb throw. */
+  bombCd: number;
+  /** Previous tick's bomb button — throws are edge-triggered. */
+  prevBombB: number;
 
   /** Last applied input; server reuses it when a fresh one hasn't arrived (TCP delay). */
   input: InputCmd;
@@ -117,15 +126,37 @@ export interface Projectile {
 
 export interface SquadState {
   id: number;
-  /** This squad's keep site (pre-placed and indestructible until M3). */
+  /** This squad's keep site (moves on an emergency rebuild). */
   keepX: number;
   keepY: number;
+  /** Structure hit points; <= 0 means destroyed (no respawns, vault spilled). */
+  keepHp: number;
+  /** Emergency rebuilds remaining this match (starts at 1). */
+  rebuildsLeft: number;
+  /** All members dead with no keep — out of the match, spectating. */
+  eliminated: boolean;
+  /** Tick of the last under-attack alarm sent to this squad (throttling). */
+  lastAlarmTick: number;
   /** Gold in the keep vault. ONLY systems/economy.ts mutates this. */
   keepGold: number;
   /** Gold banked at towns — safe forever, THE score. ONLY economy.ts mutates. */
   bankedGold: number;
-  /** Total gold ever minted to this keep; ceil(lifetime × reserveFraction) must stay home. */
+  /** Total gold ever minted to this squad; keeps the withdraw reserve honest. */
   lifetimeGold: number;
+}
+
+/** A lobbed firebomb in flight; resolves into a blast at landTick. */
+export interface Bomb {
+  id: number;
+  owner: PlayerId;
+  squad: number;
+  x: number;
+  y: number;
+  /** Landing point (locked at throw — the lob is committed, dodge the circle). */
+  tx: number;
+  ty: number;
+  landTick: number;
+  bornTick: number;
 }
 
 /** Dropped carried gold. Sits on the ground until any squad walks over it. */
@@ -151,6 +182,7 @@ export interface World {
   players: Map<PlayerId, Player>;
   projectiles: Map<number, Projectile>;
   sacks: Map<number, LootSack>;
+  bombs: Map<number, Bomb>;
   squads: SquadState[];
 }
 
@@ -189,6 +221,10 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
       id: i,
       keepX: keeps[i]!.x,
       keepY: keeps[i]!.y,
+      keepHp: cfg.keep.maxHp,
+      rebuildsLeft: 1,
+      eliminated: false,
+      lastAlarmTick: -1_000_000,
       keepGold: 0,
       bankedGold: 0,
       lifetimeGold: 0,
@@ -205,6 +241,7 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
     players: new Map(),
     projectiles: new Map(),
     sacks: new Map(),
+    bombs: new Map(),
     squads,
   };
 }
@@ -264,6 +301,10 @@ export function spawnPlayer(
     repeatKills: new Map(),
     carried: 0,
     bankTicks: 0,
+    rebuildTicks: 0,
+    bombs: cfg.firebomb.carried,
+    bombCd: 0,
+    prevBombB: 0,
     input: { ...IDLE_INPUT },
   };
   world.players.set(p.id, p);
@@ -309,6 +350,10 @@ export function serializeWorld(world: World): string {
     rk: [...p.repeatKills.entries()].map(([v, r]) => [v, r.count, r.lastTick]),
     cg: p.carried,
     bt: p.bankTicks,
+    rt: p.rebuildTicks,
+    bm: p.bombs,
+    bcd: p.bombCd,
+    pbb: p.prevBombB,
   }));
   const projectiles = [...world.projectiles.values()].map((pr) => ({
     id: pr.id,
@@ -331,8 +376,25 @@ export function serializeWorld(world: World): string {
     g: s.gold,
     bt: s.bornTick,
   }));
+  const bombs = [...world.bombs.values()].map((b) => ({
+    id: b.id,
+    ow: b.owner,
+    sq: b.squad,
+    x: b.x,
+    y: b.y,
+    tx: b.tx,
+    ty: b.ty,
+    lt: b.landTick,
+    bt: b.bornTick,
+  }));
   const squads = world.squads.map((s) => ({
     id: s.id,
+    kx: s.keepX,
+    ky: s.keepY,
+    kh: s.keepHp,
+    rb: s.rebuildsLeft,
+    el: s.eliminated,
+    lat: s.lastAlarmTick,
     g: s.keepGold,
     bk: s.bankedGold,
     lt: s.lifetimeGold,
@@ -348,6 +410,7 @@ export function serializeWorld(world: World): string {
     players,
     projectiles,
     sacks,
+    bombs,
     squads,
   });
 }

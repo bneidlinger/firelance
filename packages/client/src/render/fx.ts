@@ -51,6 +51,24 @@ export class FxLayer {
     this.add(g, x, y, 450, 2.4);
   }
 
+  /** Firebomb blast: flash disc + flying embers. `big` for keep-fall drama. */
+  explosion(x: number, y: number, big = false): void {
+    const s = big ? 2.2 : 1;
+    const flash = new Graphics();
+    flash.circle(0, 0, 12 * s).fill({ color: 0xffd27a, alpha: 0.85 });
+    flash.circle(0, 0, 7 * s).fill({ color: 0xffffff, alpha: 0.9 });
+    this.add(flash, x, y, big ? 500 : 260, 2.6);
+    const embers = new Graphics();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.3;
+      embers
+        .moveTo(Math.cos(a) * 4 * s, Math.sin(a) * 4 * s)
+        .lineTo(Math.cos(a) * 13 * s, Math.sin(a) * 13 * s);
+    }
+    embers.stroke({ width: 2, color: 0xf05a4d });
+    this.add(embers, x, y, big ? 700 : 380, 1.9);
+  }
+
   private add(g: Graphics, x: number, y: number, lifeMs: number, grow: number): void {
     g.position.set(x * TILE, y * TILE);
     this.container.addChild(g);

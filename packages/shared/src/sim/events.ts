@@ -32,11 +32,35 @@ export type SimEvent =
       victim: number;
       amount: number;
       hp: number;
-      kind: 'arrow' | 'melee';
+      kind: 'arrow' | 'melee' | 'bomb';
       blocked: boolean;
       x: number;
       y: number;
     }
+  // -- firebombs, positional (the lob is public exactly like an arrow's flight)
+  | {
+      k: 'bombSpawn';
+      tk: number;
+      id: number;
+      owner: number;
+      squad: number;
+      x: number;
+      y: number;
+      /** Locked landing point — the visible danger circle. */
+      tx: number;
+      ty: number;
+      flightTicks: number;
+    }
+  | { k: 'bombEnd'; tk: number; id: number; squad: number; x: number; y: number }
+  // -- keeps
+  /** Under-attack alarm — sent to the OWNING squad (throttled); positional otherwise. */
+  | { k: 'keepHit'; tk: number; squad: number; hp: number; x: number; y: number }
+  /** GLOBAL: a keep fell, its vault is on the ground — the map-level plunder bell. */
+  | { k: 'keepDestroyed'; tk: number; squad: number; x: number; y: number; spilled: number }
+  /** GLOBAL: an exiled squad bought its way back in. */
+  | { k: 'keepRebuilt'; tk: number; squad: number; x: number; y: number; by: number }
+  /** GLOBAL: all dead with no keep — the squad is out (spectating). */
+  | { k: 'eliminated'; tk: number; squad: number }
   // -- lifecycle
   | { k: 'respawn'; tk: number; id: number; squad: number; x: number; y: number }
   // -- economy, global (bounty is public info)
@@ -74,5 +98,11 @@ export type SimEvent =
       k: 'matchEnd';
       tk: number;
       winners: number[];
-      standings: Array<{ squad: number; banked: number; gold: number; kills: number }>;
+      standings: Array<{
+        squad: number;
+        banked: number;
+        gold: number;
+        kills: number;
+        eliminated: boolean;
+      }>;
     };

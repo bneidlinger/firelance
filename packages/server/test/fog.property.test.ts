@@ -57,9 +57,28 @@ describe('fog property test (1,000 seeded states)', () => {
         world.sacks.set(id, { id, x: x + 0.5, y: y + 0.5, gold: rngInt(rng, 1, 500), bornTick: 0 });
       }
 
+      // ~15% of iterations: squad 3 is eliminated — spectators skip fog.
+      const spectating = rngFloat(rng) < 0.15;
+      if (spectating) {
+        world.squads[3]!.keepHp = 0;
+        world.squads[3]!.eliminated = true;
+      }
+
       for (let squad = 0; squad < 4; squad++) {
         const ents = buildSquadEnts(world, map, cfg, squad);
         const sent = new Set(ents.map((e) => e.i));
+
+        if (spectating && squad === 3) {
+          // Eliminated = pure audience: every living body serialized, dead none.
+          for (const p of world.players.values()) {
+            expect(sent.has(p.id), `spectator missing ${p.id}`).toBe(p.alive);
+          }
+          const sackSent = new Set(buildSquadSacks(world, map, cfg, squad).map((s) => s.i));
+          for (const s of world.sacks.values()) {
+            expect(sackSent.has(s.id), `spectator missing sack ${s.id}`).toBe(true);
+          }
+          continue;
+        }
 
         for (const e of ents) {
           const p = world.players.get(e.i)!;

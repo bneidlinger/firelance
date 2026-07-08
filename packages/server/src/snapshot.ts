@@ -8,6 +8,7 @@ import {
   ST_BLOCKING,
   ST_CARRYING,
   ST_DASHING,
+  ST_REBUILDING,
   ST_WINDUP,
 } from '@shared/net/messages';
 import { isVisibleToSquad } from '@shared/sim/vision';
@@ -33,11 +34,18 @@ function stateFlags(cfg: GameConfig, p: Player): number {
   if (p.atkPhase === ATK_WINDUP) st |= ST_WINDUP;
   if (p.atkPhase === ATK_ACTIVE) st |= ST_ACTIVE;
   if (p.dashTicks > 0) st |= ST_DASHING;
-  // Carrying/banking are visible STATES (the sack on the back, the channel
-  // kneel) — the amount stays squad-private (see the `g` rule below).
+  // Carrying/banking/rebuilding are visible STATES (the sack on the back, the
+  // channel kneel) — the amount stays squad-private (see the `g` rule below).
   if (p.carried > 0) st |= ST_CARRYING;
   if (p.bankTicks > 0) st |= ST_BANKING;
+  if (p.rebuildTicks > 0) st |= ST_REBUILDING;
   return st;
+}
+
+/** Eliminated squads spectate: their snapshots skip fog entirely. They're out
+ *  of the match — let them watch the ending they're part of. */
+function isSpectator(world: World, squadId: number): boolean {
+  return world.squads[squadId]?.eliminated === true;
 }
 
 export function buildSquadEnts(
@@ -47,10 +55,11 @@ export function buildSquadEnts(
   squadId: number,
 ): EntitySnap[] {
   const ents: EntitySnap[] = [];
+  const spectator = isSpectator(world, squadId);
   for (const p of world.players.values()) {
     if (!p.alive) continue; // the dead exist only in events/roster
     const ally = p.squad === squadId;
-    if (!ally && !isVisibleToSquad(world, map, cfg, squadId, p.x, p.y)) continue;
+    if (!ally && !spectator && !isVisibleToSquad(world, map, cfg, squadId, p.x, p.y)) continue;
     const snap: EntitySnap = {
       i: p.id,
       x: q(p.x),
@@ -76,8 +85,9 @@ export function buildSquadSacks(
   squadId: number,
 ): SackSnap[] {
   const sacks: SackSnap[] = [];
+  const spectator = isSpectator(world, squadId);
   for (const s of world.sacks.values()) {
-    if (!isVisibleToSquad(world, map, cfg, squadId, s.x, s.y)) continue;
+    if (!spectator && !isVisibleToSquad(world, map, cfg, squadId, s.x, s.y)) continue;
     sacks.push({ i: s.id, x: q(s.x), y: q(s.y), g: s.gold });
   }
   return sacks;
@@ -104,5 +114,8 @@ export function buildYou(world: World, p: Player): YouSnap {
     bounty: p.bounty,
     carried: p.carried,
     bankTicks: p.bankTicks,
+    rebuildTicks: p.rebuildTicks,
+    bombs: p.bombs,
+    bombCd: p.bombCd,
   };
 }

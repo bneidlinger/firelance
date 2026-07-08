@@ -7,6 +7,7 @@ import { stepWorld } from './step';
 import type { InputCmd, PlayerId, World } from './world';
 import {
   BTN_BLOCK,
+  BTN_BOMB,
   BTN_DASH,
   BTN_FIRE,
   BTN_INTERACT,
@@ -36,7 +37,10 @@ const arena = parseMap(
 `,
 );
 
-function runScriptedMatch(ticks: number): {
+function runScriptedMatch(
+  ticks: number,
+  useBombs = false,
+): {
   hashes: string[];
   world: World;
   carriedSeen: boolean;
@@ -87,6 +91,9 @@ function runScriptedMatch(ticks: number): {
         // near the central towns it channels — the full banking path under
         // the determinism hash.
         if (rngFloat(script) < 0.3) b |= BTN_INTERACT;
+        // Bombs run in a SEPARATE scripted config: sieges wreck the economy
+        // this tiny arena needs for the banking probe (both still hash-checked).
+        if (useBombs && rngFloat(script) < 0.2) b |= BTN_BOMB;
         current.set(id, { mx, my, ax, ay, b });
       }
     }
@@ -111,6 +118,12 @@ describe('simulation determinism', () => {
     const b = runScriptedMatch(1000);
     expect(a.hashes).toEqual(b.hashes);
     expect(a.hashes.length).toBeGreaterThan(5);
+  });
+
+  it('two identical SIEGE runs (bombs on) produce identical world hashes', () => {
+    const a = runScriptedMatch(1000, true);
+    const b = runScriptedMatch(1000, true);
+    expect(a.hashes).toEqual(b.hashes);
   });
 
   it('the scripted run exercises real combat (not vacuous)', () => {
@@ -143,5 +156,11 @@ describe('simulation determinism', () => {
   it('the scripted run exercises banking (gold actually got carried)', () => {
     const { carriedSeen } = runScriptedMatch(1000);
     expect(carriedSeen).toBe(true);
+  });
+
+  it('the siege run exercises structure damage (bombs actually landed)', () => {
+    const { world } = runScriptedMatch(1000, true);
+    const damaged = world.squads.some((s) => s.keepHp < smokeConfig.keep.maxHp);
+    expect(damaged).toBe(true);
   });
 });

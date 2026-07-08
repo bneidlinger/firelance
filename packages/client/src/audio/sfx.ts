@@ -90,6 +90,11 @@ export type SfxName =
   | 'coin'
   | 'pickup'
   | 'banked'
+  | 'bombThrow'
+  | 'bombBoom'
+  | 'alarm'
+  | 'keepFall'
+  | 'rebuilt'
   | 'respawn'
   | 'dash'
   | 'countdown'
@@ -139,6 +144,34 @@ const SOUNDS: Record<SfxName, Note[]> = {
     { wave: 'triangle', f0: 880, d: 0.1, g: 0.4, at: 0.09 },
     { wave: 'triangle', f0: 1319, d: 0.28, g: 0.42, at: 0.18 },
     { wave: 'square', f0: 1319, d: 0.1, g: 0.12, at: 0.18 },
+  ],
+  // A heavy lob leaving the hand.
+  bombThrow: [
+    { wave: 'noise', f0: 0, d: 0.16, g: 0.3, lp: 900 },
+    { wave: 'sine', f0: 220, f1: 340, d: 0.18, g: 0.3 },
+  ],
+  // The blast: deep thump + debris.
+  bombBoom: [
+    { wave: 'sine', f0: 110, f1: 34, d: 0.42, g: 1.0 },
+    { wave: 'noise', f0: 0, d: 0.3, g: 0.65, lp: 1400 },
+    { wave: 'square', f0: 70, f1: 40, d: 0.2, g: 0.3 },
+  ],
+  // Under-attack klaxon: two urgent low blasts.
+  alarm: [
+    { wave: 'square', f0: 392, f1: 330, d: 0.16, g: 0.4 },
+    { wave: 'square', f0: 392, f1: 330, d: 0.22, g: 0.4, at: 0.22 },
+  ],
+  // A keep coming down: long rumble under a falling tone.
+  keepFall: [
+    { wave: 'sawtooth', f0: 180, f1: 40, d: 0.9, g: 0.55 },
+    { wave: 'noise', f0: 0, d: 1.1, g: 0.6, lp: 500 },
+    { wave: 'sine', f0: 55, f1: 30, d: 1.0, g: 0.7 },
+  ],
+  // The comeback: solid rising fourth, sturdier than `banked`.
+  rebuilt: [
+    { wave: 'triangle', f0: 392, d: 0.16, g: 0.45 },
+    { wave: 'triangle', f0: 523, d: 0.3, g: 0.45, at: 0.15 },
+    { wave: 'noise', f0: 0, d: 0.12, g: 0.2, lp: 2000, at: 0.15 },
   ],
   respawn: [
     { wave: 'triangle', f0: 330, f1: 660, d: 0.18, g: 0.35 },

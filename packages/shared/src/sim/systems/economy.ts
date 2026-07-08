@@ -178,8 +178,71 @@ export function settleKillEconomy(
   }
   const factor = killRewardFactor(world, cfg, killer, victim);
   const gold = Math.round((cfg.bounty.killGold + victimBounty * cfg.bounty.payoutFactor) * factor);
-  mintGoldToKeep(world, killer.squad, gold);
+  mintKillGold(world, killer, gold);
   killer.bounty += Math.round(cfg.bounty.killBounty * factor);
   victim.bounty = Math.floor(victimBounty * cfg.bounty.deathDecayTo);
   return { gold, victimBounty };
+}
+
+/**
+ * Kill gold lands in the killer's keep vault — or, in EXILE (keep destroyed),
+ * straight onto the killer's back as carried spoils (design doc §8.5). Spoils
+ * skip the vault and thus the reserve rule: an exiled squad's earnings are
+ * bankable in full, but every coin of them is on someone's back until then.
+ */
+export function mintKillGold(world: World, killer: Player, amount: number): void {
+  if (amount <= 0) return;
+  const squad = world.squads[killer.squad];
+  if (!squad) return;
+  if (squad.keepHp > 0) {
+    mintGoldToKeep(world, killer.squad, amount);
+  } else {
+    world.goldMinted += amount;
+    squad.lifetimeGold += amount;
+    killer.carried += amount;
+  }
+}
+
+/** Deterministic split of a spilled vault into 1–3 sacks around the ruin. */
+const SPILL_SHARES = [0.5, 0.3, 0.2] as const;
+const SPILL_OFFSETS = [
+  [0, 0],
+  [1.2, 0.7],
+  [-1.0, 0.9],
+] as const;
+
+/**
+ * A destroyed keep dumps its whole vault onto the ground — the plunder moment
+ * the design doc calls "a major map event". Returns the spilled total.
+ */
+export function spillVault(world: World, squad: SquadState): number {
+  const total = squad.keepGold;
+  if (total <= 0) return 0;
+  squad.keepGold = 0;
+  let remaining = total;
+  for (let i = 0; i < SPILL_SHARES.length && remaining > 0; i++) {
+    const last = i === SPILL_SHARES.length - 1;
+    const gold = last ? remaining : Math.min(remaining, Math.round(total * SPILL_SHARES[i]!));
+    if (gold <= 0) continue;
+    remaining -= gold;
+    const [ox, oy] = SPILL_OFFSETS[i]!;
+    const sack: LootSack = {
+      id: world.nextId++,
+      x: squad.keepX + ox,
+      y: squad.keepY + oy,
+      gold,
+      bornTick: world.tick,
+    };
+    world.sacks.set(sack.id, sack);
+  }
+  return total;
+}
+
+/**
+ * The emergency rebuild's ledger half: the cost moves carried → the NEW vault
+ * (a transfer, not a burn — the fresh keep is born already worth raiding).
+ */
+export function payRebuildCost(world: World, player: Player, cost: number): void {
+  player.carried -= cost;
+  world.squads[player.squad]!.keepGold += cost;
 }

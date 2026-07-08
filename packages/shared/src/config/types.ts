@@ -122,6 +122,39 @@ export interface GameConfig {
     tierThresholds: number[];
   };
 
+  keep: {
+    /** Structure hit points. Siege pacing hangs off this. */
+    maxHp: number;
+    /** Hit-test circle around the keep site center (bombs/melee). */
+    radius: number;
+    /** Structure damage per landed melee swing (desperation chip; bombs are the tool). */
+    meleeDamage: number;
+    /** Min seconds between under-attack alarms to the owning squad. */
+    alarmCooldownSec: number;
+    /** Carried gold consumed by the emergency rebuild (transfers INTO the new vault). */
+    rebuildCost: number;
+    /** Stand-still channel length for the rebuild. */
+    rebuildChannelSec: number;
+    /** The rebuilt keep starts at this fraction of maxHp. */
+    rebuildHpFactor: number;
+  };
+
+  firebomb: {
+    /** Structure damage at impact. */
+    damage: number;
+    /** Damage to players inside the blast (friendly fire still off). */
+    playerDamage: number;
+    /** Blast radius (units). */
+    radius: number;
+    /** Max throw distance; shorter aims land at the aim point. */
+    range: number;
+    /** Lob flight time — the dodge/scatter window. */
+    flightSec: number;
+    cooldownSec: number;
+    /** Bombs carried; restocked while inside your own keep circle. */
+    carried: number;
+  };
+
   banking: {
     /** Gold loaded keep→carried per second while holding interact at own keep. */
     withdrawPerSec: number;

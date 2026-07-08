@@ -14,7 +14,8 @@ import { dropCarriedAsSack, settleKillEconomy } from './economy';
 /**
  * Apply damage from attacker to victim. Handles shield blocking, hit events,
  * assist bookkeeping, and death. Callers guarantee: victim alive, attacker
- * alive at fire time, phase is live, and squads differ (unless friendlyFire).
+ * alive at fire time (bombs: at THROW time), phase is live, and squads differ
+ * (unless friendlyFire).
  */
 export function applyDamage(
   world: World,
@@ -22,14 +23,15 @@ export function applyDamage(
   attacker: Player,
   victim: Player,
   rawAmount: number,
-  kind: 'arrow' | 'melee',
+  kind: 'arrow' | 'melee' | 'bomb',
   events: SimEvent[],
 ): void {
   if (!victim.alive) return;
   if (!cfg.combat.friendlyFire && attacker.squad === victim.squad) return;
 
   // Shield: victim blocking and the attacker sits inside the frontal sector.
-  const shield = getKit(cfg, victim.cls).shield;
+  // Bomb blasts are omnidirectional — no sector to hide behind.
+  const shield = kind === 'bomb' ? undefined : getKit(cfg, victim.cls).shield;
   let blocked = false;
   if (shield && isBlocking(victim.input.b, true, victim.dashTicks)) {
     const dx = attacker.x - victim.x;

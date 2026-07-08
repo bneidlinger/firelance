@@ -25,10 +25,12 @@ import { InputState } from './input/input';
 import { Connection } from './net/connection';
 import { Interpolation } from './net/interpolation';
 import { Prediction } from './net/prediction';
+import { BombLayer } from './render/bombs';
 import { EntityLayer, type OwnVisual } from './render/entities';
 import { FogLayer } from './render/fog';
 import { FxLayer } from './render/fx';
 import { Hud } from './render/hud';
+import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
 import { Scene, SQUAD_COLORS } from './render/scene';
@@ -66,13 +68,18 @@ interface GameState {
   entities: EntityLayer;
   projectiles: ProjectileLayer;
   sacks: SackLayer;
+  bombs: BombLayer;
+  keeps: KeepLayer;
   fx: FxLayer;
   fog: FogLayer;
   hud: Hud;
-  /** Own squad's keep site (derived from the map, same as the server). */
+  /** Own squad's keep site (moves on an emergency rebuild). */
   ownKeep: { x: number; y: number };
+  /** Live keep intel per squad: position (rebuilds move it) + public hp. */
+  keepInfo: Map<number, { x: number; y: number; hp: number }>;
   /** Own squad's vault detail from the last score (squad-private fields). */
-  ownGold: { bk: number; g: number; wd: number };
+  ownGold: { bk: number; g: number; wd: number; rb: number };
+  ownEliminated: boolean;
   /** Local fire-gating mirror (muzzle prediction). */
   predictedAtkCd: number;
   localSwingStartMs: number;
@@ -86,6 +93,29 @@ const interp = new Interpolation();
 let game: GameState | null = null;
 let scene: Scene | null = null;
 let disconnected = false;
+
+const SQUAD_CSS = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
+const SQUAD_CSS_SAFE = (squad: number): string => SQUAD_CSS[squad] ?? '#ffffff';
+
+/** Keep the persistent exile/eliminated strip in sync with squad state. */
+function updateExileStrip(): void {
+  if (!game) return;
+  if (game.ownEliminated) {
+    game.hud.exile(
+      `💀 ELIMINATED — spectating<div class="sub">no keep, nobody left standing</div>`,
+    );
+  } else if ((game.keepInfo.get(game.ownSquad)?.hp ?? 1) <= 0) {
+    const rb = game.ownGold.rb;
+    game.hud.exile(
+      rb > 0
+        ? `⚠ EXILED — no respawns` +
+            `<div class="sub">rebuild: carry ${game.cfg.keep.rebuildCost}g to an empty keep site and hold E (${rb} left)</div>`
+        : `⚠ EXILED — no respawns<div class="sub">no rebuilds left — survive</div>`,
+    );
+  } else {
+    game.hud.exile(null);
+  }
+}
 
 const input = new InputState();
 const overlay = new Overlay();
@@ -151,10 +181,19 @@ function handleServer(msg: ServerMsg): void {
         game.phase = msg.phase;
         game.phaseEndsTick = msg.phaseEndsTick;
         for (const s of msg.squads) {
-          if (s.id === game.ownSquad && s.g !== undefined) {
-            game.ownGold = { bk: s.bk, g: s.g, wd: s.wd ?? 0 };
+          const info = game.keepInfo.get(s.id);
+          if (info) {
+            info.hp = s.kh;
+            game.keeps.update(s.id, info.x, info.y, info.hp);
+          }
+          if (s.id === game.ownSquad) {
+            if (s.g !== undefined) {
+              game.ownGold = { bk: s.bk, g: s.g, wd: s.wd ?? 0, rb: s.rb ?? 0 };
+            }
+            game.ownEliminated = s.el;
           }
         }
+        updateExileStrip();
         game.hud.score(msg, roster);
       }
       break;
@@ -177,7 +216,13 @@ function onYou(you: YouSnap): void {
   if (you.atkPhase === 0) {
     game.predictedAtkCd = Math.max(game.predictedAtkCd, you.atkCd);
   }
-  game.hud.you(you, game.lastKillerName);
+  // Dead with no keep: the respawn countdown would lie.
+  const deadNote = game.ownEliminated
+    ? 'ELIMINATED — spectating the endgame'
+    : (game.keepInfo.get(game.ownSquad)?.hp ?? 1) <= 0
+      ? 'no keep, no respawn — your squad must rebuild'
+      : null;
+  game.hud.you(you, game.lastKillerName, deadNote);
 }
 
 function handleEvent(ev: NetEvent): void {
@@ -258,6 +303,86 @@ function handleEvent(ev: NetEvent): void {
       }
       break;
     }
+    case 'bombSpawn':
+      game.bombs.onSpawn(ev);
+      sfx('bombThrow', { x: ev.x, y: ev.y }, listener);
+      break;
+    case 'bombEnd':
+      game.bombs.onEnd(ev.id);
+      game.fx.explosion(ev.x, ev.y);
+      sfx('bombBoom', { x: ev.x, y: ev.y }, listener);
+      break;
+    case 'keepHit': {
+      const info = game.keepInfo.get(ev.squad);
+      if (info) {
+        info.hp = ev.hp;
+        game.keeps.update(ev.squad, info.x, info.y, ev.hp);
+      }
+      if (ev.squad === game.ownSquad) {
+        game.hud.alarm('⚠ KEEP UNDER ATTACK ⚠');
+        sfx('alarm');
+      }
+      break;
+    }
+    case 'keepDestroyed': {
+      const info = game.keepInfo.get(ev.squad);
+      if (info) {
+        info.hp = 0;
+        game.keeps.update(ev.squad, info.x, info.y, 0);
+      }
+      game.fx.explosion(ev.x, ev.y, true);
+      sfx('keepFall'); // a map event — thunder for everyone
+      const names = ['Red', 'Blue', 'Green', 'Gold'];
+      game.hud.news(
+        `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">${names[ev.squad]} keep</span>` +
+          ` <span style="color:#f05a4d">DESTROYED</span>` +
+          (ev.spilled > 0 ? ` <span style="color:#f2d68c">— ${ev.spilled}g spilled!</span>` : ''),
+      );
+      if (ev.squad === game.ownSquad) {
+        game.hud.alarm('☠ YOUR KEEP HAS FALLEN ☠');
+        updateExileStrip();
+      }
+      break;
+    }
+    case 'keepRebuilt': {
+      const info = game.keepInfo.get(ev.squad);
+      if (info) {
+        info.x = ev.x;
+        info.y = ev.y;
+        game.keeps.update(
+          ev.squad,
+          ev.x,
+          ev.y,
+          game.cfg.keep.maxHp * game.cfg.keep.rebuildHpFactor,
+        );
+      }
+      if (ev.squad === game.ownSquad) {
+        game.ownKeep = { x: ev.x, y: ev.y };
+        sfx('rebuilt');
+        game.hud.toast('The keep stands again — respawns resume');
+        updateExileStrip();
+      } else {
+        sfx('rebuilt', { x: ev.x, y: ev.y }, listener);
+      }
+      const names = ['Red', 'Blue', 'Green', 'Gold'];
+      game.hud.news(
+        `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">${names[ev.squad]} squad</span> rebuilt their keep 🏰`,
+      );
+      break;
+    }
+    case 'eliminated': {
+      const names = ['Red', 'Blue', 'Green', 'Gold'];
+      game.hud.news(
+        `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">${names[ev.squad]} squad</span>` +
+          ` <span style="color:#f05a4d">ELIMINATED</span> 💀`,
+      );
+      if (ev.squad === game.ownSquad) {
+        game.ownEliminated = true;
+        sfx('ownDeath');
+        updateExileStrip();
+      }
+      break;
+    }
     case 'sackTaken':
       game.fx.respawnRing(ev.x, ev.y, 0xf2d68c);
       sfx('pickup', { x: ev.x, y: ev.y }, listener);
@@ -305,6 +430,13 @@ async function setupScene(
   const hud = game?.hud ?? new Hud(cfg);
   hud.reset();
 
+  const keepSites = assignKeeps(map, cfg.match.squads);
+  const keepInfo = new Map<number, { x: number; y: number; hp: number }>();
+  keepSites.forEach((k, squad) => keepInfo.set(squad, { x: k.x, y: k.y, hp: cfg.keep.maxHp }));
+
+  game?.bombs.clear();
+  game?.keeps.clear();
+
   game = {
     cfg,
     map,
@@ -317,17 +449,23 @@ async function setupScene(
     entities: new EntityLayer(scene.entityLayer, cfg),
     projectiles: new ProjectileLayer(scene.projectileLayer, welcome.tickRate),
     sacks: new SackLayer(scene.sackLayer),
+    bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
+    keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     fx: new FxLayer(scene.fxLayer),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
-    ownKeep: assignKeeps(map, cfg.match.squads)[welcome.squadId] ?? { x: 0, y: 0 },
-    ownGold: { bk: 0, g: 0, wd: 0 },
+    ownKeep: keepSites[welcome.squadId] ?? { x: 0, y: 0 },
+    keepInfo,
+    ownGold: { bk: 0, g: 0, wd: 0, rb: 1 },
+    ownEliminated: false,
     predictedAtkCd: 0,
     localSwingStartMs: -1e9,
     lastAim: { ax: 1, ay: 0 },
-    lastKillerName: null,
     lastHitPos: new Map(),
+    lastKillerName: null,
   };
+  for (const [squad, info] of keepInfo) game.keeps.update(squad, info.x, info.y, info.hp);
+  updateExileStrip();
   startLoop();
 }
 
@@ -426,8 +564,10 @@ function frame(now: number): void {
   // ---- contextual banking prompt (the "how do I bank" tutorial, in place)
   updatePrompt(ownPos);
 
-  // ---- projectiles + fx on the delayed timeline
+  // ---- projectiles + bombs + fx on the delayed timeline
   game.projectiles.frame(renderTick, now);
+  game.bombs.frame(renderTick, now);
+  game.keeps.frame(now);
   game.fx.frame(now);
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
@@ -471,9 +611,9 @@ function frame(now: number): void {
 let latestYouHp = 0;
 
 /**
- * The banking rules, taught where they apply: a prompt near your keep for
- * loading (with the 75/25 reserve explained the moment it bites), and one
- * near towns for the stand-still deposit channel.
+ * The rules, taught where they apply: loading at your keep (with the 75/25
+ * reserve explained the moment it bites), the deposit channel at towns, and —
+ * in exile — the rebuild ritual at empty keep sites.
  */
 function updatePrompt(ownPos: { x: number; y: number } | null): void {
   if (!game || !ownPos || game.phase !== PHASE_LIVE || !latestYou?.alive) {
@@ -483,9 +623,33 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
   const R = game.cfg.banking.interactRadius;
   const near = (p: { x: number; y: number }): boolean =>
     Math.hypot(p.x - ownPos.x, p.y - ownPos.y) <= R + 0.6;
+  const ownKeepAlive = (game.keepInfo.get(game.ownSquad)?.hp ?? 1) > 0;
 
   let html: string | null = null;
-  if (near(game.ownKeep)) {
+
+  if (!ownKeepAlive && game.ownGold.rb > 0) {
+    // Exile: rebuild prompts at any unoccupied site in reach.
+    const cost = game.cfg.keep.rebuildCost;
+    for (const site of game.map.keeps) {
+      if (!near(site)) continue;
+      const occupied = [...game.keepInfo.values()].some(
+        (k) => k.hp > 0 && Math.hypot(k.x - site.x, k.y - site.y) < 2,
+      );
+      if (occupied) continue;
+      html =
+        latestYou.rebuildTicks > 0
+          ? `Raising the keep…` +
+            `<div class="sub">stand still — damage or movement breaks the ritual</div>`
+          : latestYou.carried >= cost
+            ? `<span class="key">E</span> rebuild the keep here (${cost}g)` +
+              `<div class="sub">stand still and hold — ${game.cfg.keep.rebuildChannelSec}s; the cost seeds the new vault</div>`
+            : `Rebuild costs ${cost}g carried — you have ${latestYou.carried}g` +
+              `<div class="sub">recover your spilled vault from the ruin</div>`;
+      break;
+    }
+  }
+
+  if (!html && ownKeepAlive && near(game.ownKeep)) {
     if (game.ownGold.wd > 0) {
       html =
         `<span class="key">E</span> load gold — ${game.ownGold.wd}g withdrawable` +
@@ -495,7 +659,9 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
         `Keep reserve locked` +
         `<div class="sub">25% of lifetime earnings stays home as raid bait — earn more to bank more</div>`;
     }
-  } else {
+  }
+
+  if (!html) {
     for (const t of game.map.towns) {
       if (!near(t)) continue;
       if (latestYou.carried > 0) {
@@ -637,6 +803,9 @@ window.__fl = {
           atkCd: latestYou.atkCd,
           carried: latestYou.carried,
           bankTicks: latestYou.bankTicks,
+          rebuildTicks: latestYou.rebuildTicks,
+          bombs: latestYou.bombs,
+          bombCd: latestYou.bombCd,
         }
       : null,
     banking: game
@@ -648,6 +817,10 @@ window.__fl = {
           ownGold: { ...game.ownGold },
         }
       : null,
+    keeps: game
+      ? [...game.keepInfo.entries()].map(([squad, k]) => ({ squad, x: k.x, y: k.y, hp: k.hp }))
+      : null,
+    ownEliminated: game?.ownEliminated ?? false,
     disconnected,
   }),
 };

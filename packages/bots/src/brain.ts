@@ -7,7 +7,7 @@ import type { EntitySnap, InputMsg, SackSnap, ServerMsg, YouSnap } from '@shared
 import { ST_CARRYING } from '@shared/net/messages';
 import { tileRayClear } from '@shared/sim/vision';
 import { assignKeeps } from '@shared/sim/world';
-import { findPath, randomWalkableTile, type Waypoint } from './nav';
+import { findPath, randomWalkableTile, walkRayClear, type Waypoint } from './nav';
 
 // Transport-agnostic bot mind, Milestone 2: a combatant AND an economic actor.
 // Consumes only what the server actually sends (bots live under the same fog
@@ -65,9 +65,11 @@ export const DEFAULT_SKILL: BotSkill = {
   lootRange: 18,
 };
 
-type FsmState = 'ROAM' | 'SEEK' | 'ATTACK' | 'FLEE' | 'LOOT' | 'BANK';
+type FsmState =
+  'ROAM' | 'SEEK' | 'ATTACK' | 'FLEE' | 'LOOT' | 'BANK' | 'DEFEND' | 'SIEGE' | 'REBUILD';
 
 const BTN_INTERACT = 8; // matches shared/sim/world.ts (old code uses 1/2/4 literals)
+const BTN_BOMB = 16;
 
 const THINK_PATH_EVERY_TICKS = 6; // ~5Hz pathing at 30Hz sim
 const WAYPOINT_REACHED = 0.7;
@@ -131,6 +133,18 @@ export class BotBrain {
   /** Last tick doBank ran — a gap means another state interleaved. */
   private lastBankTick = -1_000_000;
 
+  // ---- keep warfare state (M3)
+  /** Current keep site per squad (assignKeeps at start; keepRebuilt moves it). */
+  private readonly keepPos = new Map<number, Waypoint>();
+  /** Public keep hp per squad, from the 2Hz score. */
+  private readonly keepHpBySquad = new Map<number, number>();
+  /** Own squad's rebuilds remaining (own-squad score field). */
+  private ownRebuilds = 1;
+  /** Tick of our squad's last under-attack alarm. */
+  private lastOwnAlarmTick = -1_000_000;
+  /** Where OUR keep fell (the spill to recover for the rebuild). */
+  private ownRuin: Waypoint | null = null;
+
   private path: Waypoint[] | null = null;
   private wpIdx = 0;
   private pathGoal: Waypoint | null = null;
@@ -169,6 +183,12 @@ export class BotBrain {
         }
         this.tickRate = msg.tickRate;
         this.keep = assignKeeps(this.map, 4)[this.mySquad] ?? null;
+        this.keepPos.clear();
+        assignKeeps(this.map, 4).forEach((k, sq) => this.keepPos.set(sq, k));
+        this.keepHpBySquad.clear();
+        this.ownRebuilds = 1;
+        this.lastOwnAlarmTick = -1_000_000;
+        this.ownRuin = null;
         this.squadOf.clear();
         this.squadBotIds.clear();
         for (const r of msg.roster) {
@@ -222,13 +242,28 @@ export class BotBrain {
             this.freshUntil.set(ev.victim, ev.tk + Math.round((respawnSec + freshSec) * hz));
           } else if (ev.k === 'hit' && ev.victim === this.myId) {
             this.aggressors.set(ev.attacker, ev.tk);
+          } else if (ev.k === 'keepHit' && ev.squad === this.mySquad) {
+            this.lastOwnAlarmTick = ev.tk;
+          } else if (ev.k === 'keepDestroyed') {
+            this.keepHpBySquad.set(ev.squad, 0);
+            if (ev.squad === this.mySquad) this.ownRuin = { x: ev.x, y: ev.y };
+          } else if (ev.k === 'keepRebuilt') {
+            this.keepPos.set(ev.squad, { x: ev.x, y: ev.y });
+            if (ev.squad === this.mySquad) {
+              this.keep = { x: ev.x, y: ev.y };
+              this.ownRuin = null;
+            }
           }
         }
         break;
       case 'score':
         for (const p of msg.players) this.bounties.set(p.id, p.b);
         for (const s of msg.squads) {
-          if (s.id === this.mySquad && s.wd !== undefined) this.ownWd = s.wd;
+          this.keepHpBySquad.set(s.id, s.kh);
+          if (s.id === this.mySquad) {
+            if (s.wd !== undefined) this.ownWd = s.wd;
+            if (s.rb !== undefined) this.ownRebuilds = s.rb;
+          }
         }
         break;
       case 'pong':
@@ -299,29 +334,66 @@ export class BotBrain {
     } else {
       const d = target ? Math.hypot(target.x - you.x, target.y - you.y) : Infinity;
       const fresh = target ? tick - target.lastSeenTick < 15 : false;
-      // Carriers and on-duty bankers only fight when cornered — the run is
-      // worth more than a kill (commitment is what makes bank runs happen
-      // at all in a 12-bot brawl).
-      const committed = carrying || this.bankerDuty(tick);
-      const engage = this.skill.engageRange * (committed ? 0.5 : 1);
+      // Carriers, on-duty bankers, and siegers only fight when cornered — the
+      // job is worth more than a kill (commitment is what makes bank runs and
+      // sieges happen at all in a 12-bot brawl). A sieger AT THROWING RANGE of
+      // the target keep goes full tunnel-vision: keeps always have defenders
+      // milling around, and breaking for every one of them is how sieges
+      // never happen. Eating arrows at the wall is the price of the job.
+      const siegeReadyEarly = this.siegeViable(tick);
+      const atSiegePost =
+        siegeReadyEarly &&
+        (() => {
+          const k = this.nearestEnemyKeep();
+          if (!k) return false;
+          const range = this.cfg?.firebomb.range ?? 7;
+          return Math.hypot(k.x - you.x, k.y - you.y) < range + 2;
+        })();
+      const committed = carrying || this.bankerDuty(tick) || siegeReadyEarly;
+      const engage = this.skill.engageRange * (atSiegePost ? 0.25 : committed ? 0.5 : 1);
       const townNear =
         carrying &&
         (() => {
           const t = this.nearestTown();
           return Math.hypot(t.x - you.x, t.y - you.y) <= this.skill.bankDetourRange;
         })();
+      const ownKh = this.keepHpBySquad.get(this.mySquad) ?? 1;
+      const exiled = ownKh <= 0;
+      const alarmed = !exiled && tick - this.lastOwnAlarmTick < 300; // ~10s of urgency
+      // A siege-ready aggressor has tunnel vision: only sacks practically on
+      // the path (or underfoot) justify a detour.
+      const siegeReady = siegeReadyEarly;
+      const sackWorthIt =
+        sack !== null && (!siegeReady || Math.hypot(sack.x - you.x, sack.y - you.y) < 6);
       if (target && fresh && d <= engage) {
         this.state = 'ATTACK';
-      } else if (sack) {
-        this.state = 'LOOT';
-      } else if (carrying && (you.carried >= this.skill.bankNowAt || !target || townNear)) {
+      } else if (sack && sackWorthIt) {
+        this.state = 'LOOT'; // also how exiles recover their spilled vault
+      } else if (
+        carrying &&
+        (you.carried >= this.skill.bankNowAt || ((!target || townNear) && !siegeReady))
+      ) {
         // A real load, nothing better to do, or walking past a town anyway.
-        this.state = 'BANK';
+        // Exception: an exiled banker saving for the rebuild HOLDS the gold.
+        if (exiled && this.ownRebuilds > 0 && this.isBanker()) {
+          this.state = 'REBUILD';
+        } else {
+          this.state = 'BANK';
+        }
+      } else if (exiled && this.ownRebuilds > 0 && this.isBanker()) {
+        // The comeback is the banker's job: gather the spill, raise the keep.
+        this.state = 'REBUILD';
+      } else if (alarmed && !carrying) {
+        this.state = 'DEFEND';
       } else if (this.bankerDuty(tick)) {
         // Duty outranks chasing: the banker LEAVES the fight — that's the role
         // (and the window it opens for the enemy is the M2 gameplay).
         if (this.state !== 'BANK') this.bankStartTick = tick; // entry only
         this.state = 'BANK';
+      } else if (siegeReady) {
+        // The aggressor walks PAST distant enemies — only a fresh threat
+        // inside the committed engage radius (above) interrupts the siege.
+        this.state = 'SIEGE';
       } else if (target && !carrying) {
         this.state = 'SEEK';
       } else {
@@ -340,9 +412,60 @@ export class BotBrain {
         return this.doLoot(tick, sack!);
       case 'BANK':
         return this.doBank(tick);
+      case 'DEFEND':
+        return this.doDefend(tick);
+      case 'SIEGE':
+        return this.doSiege(tick);
+      case 'REBUILD':
+        return this.doRebuild(tick);
       default:
         return this.doRoam(tick);
     }
+  }
+
+  /** Lowest-id squad bot = banker (bank runs, rebuilds). */
+  private isBanker(): boolean {
+    let lowest = Number.POSITIVE_INFINITY;
+    for (const id of this.squadBotIds) if (id < lowest) lowest = id;
+    return lowest === this.myId;
+  }
+
+  /** Highest-id squad bot = aggressor (the one who goes sieging). */
+  private isAggressor(): boolean {
+    let highest = -1;
+    for (const id of this.squadBotIds) if (id > highest) highest = id;
+    return highest === this.myId;
+  }
+
+  private siegeViable(tick: number): boolean {
+    if (!this.isAggressor()) return false;
+    // Let economies build first — a destroyed keep should spill something
+    // worth fighting over (first quarter of the match is off-limits).
+    const durationTicks = (this.cfg?.match.durationSec ?? 480) * this.tickRate;
+    if (tick < durationTicks * 0.25) return false;
+    const you = this.you!;
+    // Pocket change rides along; a real load goes to the bank first.
+    if (you.carried >= this.skill.bankNowAt) return false;
+    const ownKh = this.keepHpBySquad.get(this.mySquad) ?? 1;
+    // Out of bombs with no armory to refill at = no siege.
+    if (you.bombs <= 0 && ownKh <= 0) return false;
+    return this.nearestEnemyKeep() !== null;
+  }
+
+  private nearestEnemyKeep(): Waypoint | null {
+    const you = this.you!;
+    let best: Waypoint | null = null;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const [sq, pos] of this.keepPos) {
+      if (sq === this.mySquad) continue;
+      if ((this.keepHpBySquad.get(sq) ?? 1) <= 0) continue;
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = pos;
+      }
+    }
+    return best;
   }
 
   /** Closest fresh enemy, with a bounty sweetener (hunt the rich) and a hard
@@ -572,6 +695,109 @@ export class BotBrain {
     return this.input(tick, 0, 0, aim.ax, aim.ay, BTN_INTERACT);
   }
 
+  /** Run home and hold the courtyard — ATTACK preempts handle the actual fight. */
+  private doDefend(tick: number): InputMsg {
+    const you = this.you!;
+    const home = this.keep ?? { x: you.x, y: you.y };
+    const d = Math.hypot(home.x - you.x, home.y - you.y);
+    if (d > 3.5) {
+      const move = this.moveToward(tick, home.x, home.y);
+      let b = 0;
+      if (you.dashCd <= 0 && (move.mx !== 0 || move.my !== 0)) b |= 4; // sprint home
+      return this.input(tick, move.mx, move.my, move.mx || 1, move.my, b);
+    }
+    // On station: circle the keep so we're not a standing target.
+    const strafe = this.strafeDir(tick, (you.x - home.x) / (d || 1), (you.y - home.y) / (d || 1));
+    const threat = this.pickTarget(tick);
+    const aim = threat ? this.aimAt(threat, false) : { ax: strafe.x || 1, ay: strafe.y };
+    return this.input(tick, strafe.x, strafe.y, aim.ax, aim.ay, 0);
+  }
+
+  /** The aggressor's job: walk to a living enemy keep and burn it down,
+   *  with restock trips home when the satchel runs dry. */
+  private doSiege(tick: number): InputMsg {
+    const you = this.you!;
+    const range = this.cfg?.firebomb.range ?? 7;
+
+    if (you.bombs <= 0) {
+      // Armory run: restock is automatic inside our own keep circle.
+      const home = this.keep ?? { x: you.x, y: you.y };
+      const d = Math.hypot(home.x - you.x, home.y - you.y);
+      if (d > 1.6) {
+        const move = this.moveToward(tick, home.x, home.y);
+        return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+      }
+      return this.input(tick, 0, 0, 1, 0, 0); // stand a beat; restock is instant
+    }
+
+    const target = this.nearestEnemyKeep();
+    if (!target) return this.doRoam(tick);
+    const dx = target.x - you.x;
+    const dy = target.y - you.y;
+    const d = Math.hypot(dx, dy);
+    if (d > range - 0.5) {
+      // Bombs LOB — no sightline needed, just proximity. Approach.
+      const move = this.moveToward(tick, target.x, target.y);
+      return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+    }
+    // In range: ORBIT the keep while lobbing — a moving bombardier survives
+    // the defenders' arrows far longer than a standing one. Pressing only
+    // while the cooldown is ready gives the edge-trigger clean rising edges.
+    const strafe = this.strafeDir(tick, dx / (d || 1), dy / (d || 1));
+    const b = you.bombCd <= 0 ? BTN_BOMB : 0;
+    return this.input(tick, strafe.x, strafe.y, dx / (d || 1), dy / (d || 1), b);
+  }
+
+  /** The exile comeback: recover the spilled vault, then raise a new keep. */
+  private doRebuild(tick: number): InputMsg {
+    const you = this.you!;
+    const cost = this.cfg?.keep.rebuildCost ?? 250;
+    const interactR = (this.cfg?.banking.interactRadius ?? 2.5) * 0.6;
+
+    if (you.carried < cost) {
+      // Head for the ruin — the spill sacks become visible en route and the
+      // LOOT branch (which outranks REBUILD) scoops them automatically.
+      const ruin = this.ownRuin ?? this.keep ?? { x: you.x, y: you.y };
+      const move = this.moveToward(tick, ruin.x, ruin.y);
+      return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+    }
+
+    const site = this.nearestUnoccupiedSite();
+    if (!site) return this.doRoam(tick);
+    const d = Math.hypot(site.x - you.x, site.y - you.y);
+    if (d > interactR) {
+      const move = this.moveToward(tick, site.x, site.y);
+      return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+    }
+    // Channel: stand still, hold interact, pray.
+    const threat = this.pickTarget(tick);
+    const aim = threat ? this.aimAt(threat, false) : { ax: 1, ay: 0 };
+    return this.input(tick, 0, 0, aim.ax, aim.ay, BTN_INTERACT);
+  }
+
+  private nearestUnoccupiedSite(): Waypoint | null {
+    const you = this.you!;
+    let best: Waypoint | null = null;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const site of this.map!.keeps) {
+      let occupied = false;
+      for (const [sq, pos] of this.keepPos) {
+        if ((this.keepHpBySquad.get(sq) ?? 1) <= 0) continue;
+        if (Math.hypot(pos.x - site.x, pos.y - site.y) < 2) {
+          occupied = true;
+          break;
+        }
+      }
+      if (occupied) continue;
+      const d = Math.hypot(site.x - you.x, site.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = site;
+      }
+    }
+    return best;
+  }
+
   /** True while the keep trickle moved gold onto us within the last 12 ticks. */
   private stillLoading(tick: number): boolean {
     const you = this.you!;
@@ -651,10 +877,12 @@ export class BotBrain {
     return { x: -ny * this.strafeSign, y: nx * this.strafeSign };
   }
 
-  /** Direct steer when close & clear; A* when far or blocked. */
+  /** Direct steer when close & WALKABLE in a straight line; A* otherwise.
+   *  (Walk-clear, not vision-clear: water is see-through but not crossable —
+   *  a vision ray marches bots into the river bank forever.) */
   private moveToward(tick: number, gx: number, gy: number): { mx: number; my: number } {
     const you = this.you!;
-    if (tileRayClear(this.map!, you.x, you.y, gx, gy)) {
+    if (walkRayClear(this.map!, you.x, you.y, gx, gy)) {
       const dx = gx - you.x;
       const dy = gy - you.y;
       const l = Math.hypot(dx, dy);

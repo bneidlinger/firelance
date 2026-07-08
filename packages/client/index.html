@@ -236,6 +236,34 @@
         width: 0%;
         background: #f2d68c;
       }
+      #bombs {
+        color: #f05a4d;
+      }
+      #alarm {
+        top: 15%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 20px;
+        font-weight: bold;
+        color: #f05a4d;
+        text-shadow: 0 0 12px rgba(240, 90, 77, 0.7);
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      #exile {
+        top: 46px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 13px;
+        color: #f05a4d;
+        display: none;
+      }
+      #exile .sub {
+        font-size: 12px;
+        color: #b9ad98;
+      }
       #vignette {
         inset: 0;
         box-shadow: inset 0 0 120px 40px rgba(220, 40, 30, 0.55);
@@ -260,11 +288,14 @@
       <div id="selfmeta">
         <span id="selfclass"></span>
         <span id="dash"></span>
+        <span id="bombs"></span>
         <span id="selfbounty"></span>
         <span id="carry"></span>
       </div>
     </div>
     <div id="prompt" class="hud"></div>
+    <div id="alarm" class="hud"></div>
+    <div id="exile" class="hud"></div>
     <div id="deathveil" class="hud"></div>
     <div id="deathmsg" class="hud"></div>
     <div id="endscreen" class="hud"></div>

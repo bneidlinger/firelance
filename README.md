@@ -2,16 +2,17 @@
 
 Top-down multiplayer medieval bounty-siege game. Design docs live in [docs/](docs/).
 
-**Milestone 2 (banking) is in**: gold now lives in four places — keep vaults,
-carried loads, town banks, and ground sacks — and only **banked gold wins**.
-Withdraw at your keep (25% of lifetime earnings stays home as raid bait), haul
-it across the map slower the more you carry, and hold a 4-second stand-still
-channel at a town to make it safe forever. Die on the way and your load spills
-as a sack anyone can take — plunder banks tax-free. Bots run banks, hunt
-carriers, and race you to dropped sacks. All of Milestone 1 underneath:
-Fighter/Ranger kits, dodgeable arrows, telegraphed melee, shield blocking,
-dash dodges, bounty with anti-farm rules, live fog of war, auto-restarting
-~8-minute matches.
+**Milestone 3 (keep destruction) is in**: keeps have hit points now, and
+firebombs are the siege tool. Crack an enemy keep and its whole vault spills
+onto the ground, their respawns stop, and their squad fights on in exile —
+with exactly one emergency rebuild to buy the comeback. All dead with no keep
+= eliminated (you spectate; your banked gold no longer counts). Matches end
+early when one squad stands. Bots besiege, defend, loot fallen vaults, and
+rebuild from exile. On top of Milestone 2's banking — four gold pools, only
+**banked gold wins**, carriers slow and visible, dropped loads lootable by
+anyone, plunder banks tax-free — and Milestone 1's combat: Fighter/Ranger
+kits, dodgeable arrows, telegraphed melee, shield blocking, dash dodges,
+bounty with anti-farm rules, live fog of war, auto-restarting matches.
 
 ## Quick start
 
@@ -33,7 +34,8 @@ http://localhost:5173 and you're the 12th seat.
 | left click         | fire bow / swing (hold to keep attacking)                  |
 | right click (hold) | shield block — Fighter only, frontal 120°, slows you       |
 | Space / Shift      | dash (displacement dodge, no i-frames; ignores carry slow) |
-| E (hold)           | load gold at your keep / bank at a town (stand still)      |
+| E (hold)           | load gold at your keep / bank at a town / rebuild (still)  |
+| F                  | lob a firebomb toward your aim (anti-structure)            |
 | 1 / 2              | switch to Fighter / Ranger at next respawn                 |
 | F3                 | netcode debug overlay                                      |
 
@@ -55,6 +57,24 @@ Useful client URL params: `?name=Brandon` `?class=fighter` `?fakelag=120&jitter=
 5. Dying mid-run spills your load as a ground sack. Anyone — including the
    squad that killed you, or your own squadmates — can walk over it and take
    it. Stolen gold banks in full: plunder is never taxed.
+
+## Siege rules (the M3 loop)
+
+1. Keeps have hp (public — everyone sees a burning keep). **Firebombs** are
+   the siege tool: press **F** to lob one at your aim; it lands after a short
+   flight in a marked circle — heavy structure damage, light splash that
+   ignores shields. You carry 2; standing in your own keep circle restocks.
+   Swords chip keeps for scraps; arrows don't scratch stone.
+2. When a keep falls: its **entire vault spills** as ground sacks, respawns
+   stop for that squad, and the killfeed tells the whole map. Living members
+   fight on in **exile** — their kills mint straight onto their backs.
+3. Exiled squads get **one emergency rebuild**: carry the cost to any empty
+   keep site and hold **E** through a stand-still channel. The cost goes into
+   the new vault (born as raid bait), the keep rises at partial hp, and the
+   dead come home on fresh respawn timers.
+4. No keep and nobody breathing = **eliminated**: the squad spectates, and its
+   banked gold no longer counts — only SURVIVORS can win. One squad left
+   standing ends the match on the spot.
 
 ## Play with friends (quick tunnel)
 
@@ -105,23 +125,30 @@ Caddy in front if you want automatic TLS.
 ## Verification
 
 ```sh
-npm test                # 141 tests: sim units, invariants, fog property test,
-                        #   3-seed 12-bot combat+banking sanity, replay determinism
+npm test                # 170 tests: sim units, invariants, fog property test,
+                        #   3-seed 12-bot combat+banking sanity, a pinned-seed
+                        #   full siege arc (destructions→rebuild→eliminations→
+                        #   early end), replay determinism
 npm run match:smoke     # in-process 12-bot match at turbo speed, prints report
+                        #   (--config prototype for full-length matches)
 npm run match:headless  # 12 bots over real websockets, p99 tick budget check
 npm run typecheck
 ```
 
 The invariant backbone: gold conservation holds every tick across all four
-pools (Σ minted == Σ keeps + Σ carried + Σ banked + Σ sacks), the keep reserve
-never drops below 25% of lifetime earnings, fog never serializes an invisible
-enemy or sack — and never leaks an enemy's carried amount (1,000-state
-property test), same seed ⇒ bit-identical replay, and every failing harness
-run dumps its replay to `replays/` for offline reproduction.
+pools (Σ minted == Σ keeps + Σ carried + Σ banked + Σ sacks) — through vault
+spills, exile spoils, and rebuild transfers; the keep reserve never drops
+below 25% of lifetime earnings while the keep stands; nobody respawns without
+a living keep; fog never serializes an invisible enemy or sack — and never
+leaks an enemy's carried amount — while eliminated spectators see everything
+(1,000-state property test); same seed ⇒ bit-identical replay, and every
+failing harness run dumps its replay to `replays/` for offline reproduction.
 
 Bots: `npm run bots -- --count 8 --skill easy|mid|hard` connects extra combat
-bots to a running server (SEEK/ATTACK/FLEE/LOOT/BANK, intercept-lead aim with
-gaussian error, class kits, a designated banker per squad, carrier hunting).
+bots to a running server (SEEK/ATTACK/FLEE/LOOT/BANK/DEFEND/SIEGE/REBUILD:
+intercept-lead aim with gaussian error, class kits, a designated banker and a
+designated aggressor per squad, carrier hunting, keep defense, restock trips,
+exile comebacks).
 
 ## Layout
 

@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // ---------------------------------------------------------------- client → server
 
@@ -82,6 +82,7 @@ export const ST_ACTIVE = 4;
 export const ST_DASHING = 8;
 export const ST_CARRYING = 16;
 export const ST_BANKING = 32;
+export const ST_REBUILDING = 64;
 
 /** Remote entity as serialized into a squad snapshot (coords quantized to 0.01). */
 export interface EntitySnap {
@@ -139,6 +140,12 @@ export interface YouSnap {
   carried: number;
   /** Deposit channel progress in ticks (0 = idle); pairs with cfg.banking.bankChannelSec. */
   bankTicks: number;
+  /** Rebuild channel progress in ticks (0 = idle); pairs with cfg.keep.rebuildChannelSec. */
+  rebuildTicks: number;
+  /** Firebombs on hand. */
+  bombs: number;
+  /** Ticks until the next bomb throw. */
+  bombCd: number;
 }
 
 export interface SnapMsg {
@@ -170,7 +177,9 @@ export interface EvMsg {
  * is the score). Keep-vault contents are squad-private from M2 on (the design
  * doc lists "vault values" as hidden info): `g` (keep gold) and `wd`
  * (withdrawable now, after the reserve rule) are present ONLY on the
- * recipient's own squad entry. ~2Hz.
+ * recipient's own squad entry. M3 adds `kh` (keep hp — PUBLIC: a burning keep
+ * is a map event, and vultures circling a weak one is the point), `el`
+ * (eliminated), and own-squad `rb` (rebuilds left). ~2Hz.
  */
 export interface ScoreMsg {
   t: 'score';
@@ -178,7 +187,15 @@ export interface ScoreMsg {
   phase: number;
   phaseEndsTick: number;
   players: Array<{ id: number; b: number; k: number; d: number; a: number }>;
-  squads: Array<{ id: number; bk: number; g?: number; wd?: number }>;
+  squads: Array<{
+    id: number;
+    bk: number;
+    kh: number;
+    el: boolean;
+    g?: number;
+    wd?: number;
+    rb?: number;
+  }>;
 }
 
 export interface PongMsg {

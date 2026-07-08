@@ -6,7 +6,8 @@ import { PHASE_LIVE, SPAWN_OFFSETS } from '../world';
 
 // Player lifecycle upkeep: out-of-combat regen, survival bounty accrual, and
 // respawns at the squad keep. Runs after combat so a player who died this
-// tick waits their full respawn timer.
+// tick waits their full respawn timer. M3: NO KEEP, NO RESPAWNS — the doc's
+// anti-"infinite defender loop" rule; the dead wait for a rebuild.
 
 export function stepLifecycle(world: World, cfg: GameConfig, events: SimEvent[]): void {
   const dt = 1 / cfg.tick.simHz;
@@ -28,7 +29,11 @@ export function stepLifecycle(world: World, cfg: GameConfig, events: SimEvent[])
           p.bounty += cfg.bounty.survivalBounty;
         }
       }
-    } else if (world.phase === PHASE_LIVE && world.tick >= p.respawnAtTick) {
+    } else if (
+      world.phase === PHASE_LIVE &&
+      world.tick >= p.respawnAtTick &&
+      world.squads[p.squad]!.keepHp > 0
+    ) {
       respawnPlayer(world, cfg, p, events);
     }
   }

@@ -23,20 +23,24 @@ export class Scene {
   readonly app: Application;
   readonly world = new Container();
   readonly mapLayer = new Container();
+  readonly keepLayer = new Container();
   readonly sackLayer = new Container();
   readonly entityLayer = new Container();
   readonly projectileLayer = new Container();
+  readonly bombLayer = new Container();
   readonly fxLayer = new Container();
   readonly fogLayer = new Container();
 
   private constructor(app: Application) {
     this.app = app;
-    // Draw order: terrain, ground loot, bodies over loot, arrows over bodies,
-    // sparks, fog veils all.
+    // Draw order: terrain, keep markers, ground loot, bodies, arrows over
+    // bodies, bombs arc over everything mortal, sparks, fog veils all.
     this.world.addChild(this.mapLayer);
+    this.world.addChild(this.keepLayer);
     this.world.addChild(this.sackLayer);
     this.world.addChild(this.entityLayer);
     this.world.addChild(this.projectileLayer);
+    this.world.addChild(this.bombLayer);
     this.world.addChild(this.fxLayer);
     this.world.addChild(this.fogLayer);
     app.stage.addChild(this.world);
@@ -87,14 +91,15 @@ export class Scene {
     }
     this.mapLayer.addChild(g);
 
-    // POI markers. Rings on keeps/towns trace the ACTUAL interact radius —
-    // "stand inside the gold circle" is the whole banking tutorial.
+    // POI markers. Rings on towns trace the ACTUAL interact radius — "stand
+    // inside the gold circle" is the whole banking tutorial. LIVE squad keeps
+    // render in KeepLayer (dynamic hp/position as of M3); the static map only
+    // marks unclaimed SITES faintly (rebuild spots).
     const poi = new Graphics();
     for (const k of map.keeps) {
       poi
-        .circle(k.x * TILE, k.y * TILE, interactRadius * TILE)
-        .stroke({ width: 2, color: COLORS.keep, alpha: 0.55 });
-      poi.circle(k.x * TILE, k.y * TILE, 3).fill(COLORS.keep);
+        .circle(k.x * TILE, k.y * TILE, interactRadius * TILE * 0.55)
+        .stroke({ width: 1.5, color: COLORS.keep, alpha: 0.22 });
     }
     for (const t of map.towns) {
       // A bank: gold square vault + coin dot, inside its interact circle.
