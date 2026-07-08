@@ -88,6 +88,19 @@ export function pickupSack(world: World, player: Player, sack: LootSack): void {
 }
 
 /**
+ * Remove a player from the world (disconnect/eviction), spilling any carried
+ * gold as a ground sack first — deleting a carrier outright would destroy
+ * gold and break conservation. Match.leave() AND the replay runner both call
+ * THIS function; a leave applied any other way would fork the hash.
+ */
+export function removePlayerSpillingGold(world: World, id: number): void {
+  const p = world.players.get(id);
+  if (!p) return;
+  dropCarriedAsSack(world, p); // no-op when empty-handed; the dead carry nothing
+  world.players.delete(id);
+}
+
+/**
  * Carrier walk-speed multiplier for a given load — the config slow curve.
  * Runs inside the PREDICTION path (client and server both), so: pure,
  * branch-simple, no trig. Dash is deliberately unaffected (the escape tool

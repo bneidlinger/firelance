@@ -93,7 +93,18 @@ describe('match connection handling', () => {
     expect(pings.some((d) => d.includes('"pong"') && d.includes('424242'))).toBe(true);
   });
 
-  it('removes players when their connection closes', () => {
+  it('bot disconnects remove the body immediately', () => {
+    const match = makeMatch();
+    const pair = createLocalPair();
+    match.addConn(pair.serverEnd);
+    pair.clientEnd.send(encodeMsg({ t: 'hello', v: PROTOCOL_VERSION, name: 'ghost', bot: true }));
+    expect(match.playerCount).toBe(1);
+    pair.clientEnd.close();
+    expect(match.playerCount).toBe(0);
+    expect(match.world.players.size).toBe(0);
+  });
+
+  it('human disconnects free the seat but park the body for resume', () => {
     const match = makeMatch();
     const pair = createLocalPair();
     match.addConn(pair.serverEnd);
@@ -101,6 +112,6 @@ describe('match connection handling', () => {
     expect(match.playerCount).toBe(1);
     pair.clientEnd.close();
     expect(match.playerCount).toBe(0);
-    expect(match.world.players.size).toBe(0);
+    expect(match.world.players.size).toBe(1); // body waits out the grace window
   });
 });

@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION } from './messages';
 const CLIENT_SAMPLES: ClientMsg[] = [
   { t: 'hello', v: PROTOCOL_VERSION, name: 'Brandon' },
   { t: 'hello', v: PROTOCOL_VERSION, name: 'bot1', bot: true, cls: 'ranger' },
+  { t: 'hello', v: PROTOCOL_VERSION, name: 'Brandon', resume: 'a-resume-token' },
   { t: 'input', seq: 12, tick: 340, mx: 1, my: -1, ax: 0.6, ay: 0.8, b: 5 },
   { t: 'class', cls: 'fighter' },
   { t: 'ping', ct: 123456.78 },
@@ -25,6 +26,7 @@ const SERVER_SAMPLES: ServerMsg[] = [
     phase: 1,
     phaseEndsTick: 14400,
     roster: [{ id: 3, squad: 1, name: 'Brandon', bot: false }],
+    resume: 'f00f-1234-token',
   },
   {
     t: 'snap',
@@ -155,6 +157,13 @@ describe('codec rejects malformed input', () => {
     expect(decodeClientMsg('{"t":"hello","v":1,"name":"x","cls":"wizard"}').ok).toBe(false);
     expect(decodeClientMsg('{"t":"class","cls":"wizard"}').ok).toBe(false);
     expect(decodeClientMsg('{"t":"class","cls":42}').ok).toBe(false);
+  });
+
+  it('bad resume tokens', () => {
+    expect(decodeClientMsg('{"t":"hello","v":1,"name":"x","resume":42}').ok).toBe(false);
+    expect(decodeClientMsg(`{"t":"hello","v":1,"name":"x","resume":"${'t'.repeat(100)}"}`).ok).toBe(
+      false,
+    );
   });
 
   it('oversized frames', () => {

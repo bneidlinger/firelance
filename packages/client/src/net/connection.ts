@@ -6,6 +6,27 @@ import { PROTOCOL_VERSION } from '@shared/net/messages';
 //  - clock sync (estimate the current server tick from welcome + pongs)
 //  - optional fake latency/jitter injection (?fakelag=120&jitter=30, RTT ms)
 //    so netcode feel is ALWAYS judged under realistic conditions.
+//  - refresh survival: the welcome's resume token is stashed in
+//    sessionStorage (per-tab) and offered in the next hello, so F5 reclaims
+//    the SAME player — body, gold, bounty — instead of burning a seat.
+
+const RESUME_KEY = 'fl-resume';
+
+function readResumeToken(): string | undefined {
+  try {
+    return sessionStorage.getItem(RESUME_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeResumeToken(token: string): void {
+  try {
+    sessionStorage.setItem(RESUME_KEY, token);
+  } catch {
+    // Storage unavailable (private mode etc.): refreshes just join fresh.
+  }
+}
 
 export interface ConnectionOpts {
   url: string;
@@ -44,7 +65,13 @@ export class Connection {
     const ws = new WebSocket(this.opts.url);
     this.ws = ws;
     ws.onopen = () => {
-      this.sendNow({ t: 'hello', v: PROTOCOL_VERSION, name: this.opts.name, cls: this.opts.cls });
+      this.sendNow({
+        t: 'hello',
+        v: PROTOCOL_VERSION,
+        name: this.opts.name,
+        cls: this.opts.cls,
+        resume: readResumeToken(),
+      });
       // Pings ride the same fake-latency queue as inputs so the overlay's RTT
       // reflects the simulated conditions, not a shortcut path.
       setInterval(() => this.send({ t: 'ping', ct: performance.now() }), 1000);
@@ -97,6 +124,7 @@ export class Connection {
       this.tickRate = msg.tickRate;
       this.offsetTicks = 0;
       this.synced = true;
+      storeResumeToken(msg.resume);
     } else if (msg.t === 'pong') {
       const rtt = now - msg.ct;
       this.rttMs = this.rttMs === 0 ? rtt : this.rttMs * 0.8 + rtt * 0.2;

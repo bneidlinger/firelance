@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { configHash, type ClassId, type GameConfig } from '@shared/config';
+import { secToTicks } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import { decodeClientMsg, encodeMsg } from '@shared/net/codec';
 import type { HelloMsg, NetEvent, RosterEntry, ServerMsg, WelcomeMsg } from '@shared/net/messages';
@@ -7,8 +9,14 @@ import type { SimEvent } from '@shared/sim/events';
 import { stepWorld } from '@shared/sim/step';
 import { isVisibleToSquad } from '@shared/sim/vision';
 import type { InputCmd, Player, PlayerId, World } from '@shared/sim/world';
-import { createWorld, PHASE_ENDED, SPAWN_OFFSETS, spawnPlayer } from '@shared/sim/world';
-import { withdrawableGold } from '@shared/sim/systems/economy';
+import {
+  createWorld,
+  IDLE_INPUT,
+  PHASE_ENDED,
+  SPAWN_OFFSETS,
+  spawnPlayer,
+} from '@shared/sim/world';
+import { removePlayerSpillingGold, withdrawableGold } from '@shared/sim/systems/economy';
 import { acceptInput, createInputSlot, type InputSlot } from './inputs';
 import { ReplayRecorder } from './replay';
 import { buildSquadEnts, buildSquadSacks, buildYou } from './snapshot';
@@ -22,7 +30,12 @@ interface Seat {
   squad: number;
   cls: ClassId;
   slot: InputSlot;
+  /** Secret handed out in the welcome; reclaims this seat after a disconnect. */
+  token: string;
 }
+
+/** Grace window during which a disconnected human's body (and gold) waits. */
+const RESUME_GRACE_SEC = 60;
 
 export interface MatchOpts {
   cfg: GameConfig;
@@ -47,6 +60,13 @@ export class Match {
   private readonly opts: MatchOpts;
   private readonly cfgHashValue: string;
   private readonly seats = new Map<PlayerId, Seat>();
+  /** Disconnected human seats waiting out the resume grace window, by token.
+   *  Their player entities remain in the world — standing, killable, gold at
+   *  risk. Refreshing is never an escape hatch. */
+  private readonly limbo = new Map<string, { seat: Seat; expiresTick: number }>();
+  /** One-shot idle inputs for freshly-limbo'd bodies — merged into the next
+   *  tick's input map so the stop flows through recordTick (replay-faithful). */
+  private readonly pendingIdleInputs = new Map<PlayerId, InputCmd>();
   private stats = { snapshotsSent: 0, inputsAccepted: 0, bytesSent: 0 };
   private pendingEvents: SimEvent[] = [];
   private currentSeed: number;
@@ -75,6 +95,12 @@ export class Match {
 
   get playerCount(): number {
     return this.seats.size;
+  }
+
+  get botSeats(): number {
+    let n = 0;
+    for (const s of this.seats.values()) if (s.bot) n++;
+    return n;
   }
 
   get seed(): number {
@@ -126,7 +152,12 @@ export class Match {
       }
     });
     conn.onClose(() => {
-      if (joined !== null) this.leave(joined);
+      if (joined === null) return;
+      const seat = this.seats.get(joined);
+      // A resume takeover may have swapped the conn already — stale closes no-op.
+      if (!seat || seat.conn !== conn) return;
+      if (seat.bot) this.leave(joined);
+      else this.enterLimbo(seat);
     });
   }
 
@@ -138,11 +169,24 @@ export class Match {
       conn.close();
       return null;
     }
+    if (hello.resume) {
+      const resumed = this.tryResume(conn, hello.resume);
+      if (resumed !== null) return resumed;
+      // Unknown or expired token: fall through to a fresh join.
+    }
     const capacity = this.cfg.match.squads * this.cfg.match.playersPerSquad;
     if (this.seats.size >= capacity) {
-      conn.send(encodeMsg({ t: 'error', reason: 'match full' }));
-      conn.close();
-      return null;
+      // Bots fill seats; humans take them back. A human joining a bot-padded
+      // full match evicts one bot — only genuinely human-full matches reject.
+      const victim = hello.bot === true ? null : this.pickEvictableBot();
+      if (!victim) {
+        conn.send(encodeMsg({ t: 'error', reason: 'match full' }));
+        conn.close();
+        return null;
+      }
+      const victimConn = victim.conn;
+      this.leave(victim.id);
+      victimConn.close();
     }
 
     const squad = this.pickSquad();
@@ -161,11 +205,12 @@ export class Match {
       squad,
       cls,
       slot: createInputSlot(),
+      token: randomUUID(),
     };
     this.seats.set(player.id, seat);
     this.recorderState?.recordJoin(player);
 
-    this.send(seat, this.buildWelcome(player.id, squad));
+    this.send(seat, this.buildWelcome(seat));
     this.broadcastEvent(
       {
         k: 'playerJoined',
@@ -202,11 +247,11 @@ export class Match {
     );
   }
 
-  private buildWelcome(playerId: PlayerId, squad: number): WelcomeMsg {
+  private buildWelcome(seat: Seat): WelcomeMsg {
     return {
       t: 'welcome',
-      playerId,
-      squadId: squad,
+      playerId: seat.id,
+      squadId: seat.squad,
       mapId: this.map.id,
       cfgName: this.cfg.name,
       cfgHash: this.cfgHashValue,
@@ -216,16 +261,72 @@ export class Match {
       phase: this.worldState.phase,
       phaseEndsTick: this.worldState.phaseEndsTick,
       roster: this.roster(),
+      resume: seat.token,
     };
+  }
+
+  /** Reclaim a seat by token: from limbo (normal refresh) or by conn takeover
+   *  (the refresh RACE — the new tab connects before the old socket closes). */
+  private tryResume(conn: ClientConn, token: string): PlayerId | null {
+    const parked = this.limbo.get(token);
+    if (parked) {
+      this.limbo.delete(token);
+      const seat = parked.seat;
+      seat.conn = conn;
+      seat.slot = createInputSlot(); // the refreshed client restarts seq at 1
+      this.seats.set(seat.id, seat);
+      this.send(seat, this.buildWelcome(seat));
+      return seat.id;
+    }
+    for (const seat of this.seats.values()) {
+      if (seat.bot || seat.token !== token) continue;
+      const old = seat.conn;
+      seat.conn = conn;
+      seat.slot = createInputSlot();
+      old.close(); // its onClose sees a different conn on the seat and no-ops
+      this.send(seat, this.buildWelcome(seat));
+      return seat.id;
+    }
+    return null;
+  }
+
+  /** Park a disconnected human seat; their body stays in the world (killable,
+   *  gold at risk) until they resume or the grace window expires. */
+  private enterLimbo(seat: Seat): void {
+    this.seats.delete(seat.id);
+    this.pendingIdleInputs.set(seat.id, { ...IDLE_INPUT });
+    this.limbo.set(seat.token, {
+      seat,
+      expiresTick: this.worldState.tick + secToTicks(this.cfg, RESUME_GRACE_SEC),
+    });
   }
 
   private leave(id: PlayerId): void {
     const seat = this.seats.get(id);
     if (!seat) return;
     this.seats.delete(id);
-    this.worldState.players.delete(id);
+    // Spills carried gold as a sack — disconnecting can never destroy gold
+    // (and can never rescue it, either: log off mid-run and the load stays
+    // on the field). Same function the replay runner applies.
+    removePlayerSpillingGold(this.worldState, id);
     this.recorderState?.recordLeave(id, this.worldState.tick);
     this.broadcastEvent({ k: 'playerLeft', tk: this.worldState.tick, id });
+  }
+
+  /** Newest bot on the fullest squad — evicting it preserves balance and
+   *  leaves each squad's oldest (banker-role) bot in place. */
+  private pickEvictableBot(): Seat | null {
+    let best: Seat | null = null;
+    let bestKey = -1;
+    for (const s of this.seats.values()) {
+      if (!s.bot) continue;
+      const key = this.squadMembers(s.squad).length * 1_000_000 + s.id;
+      if (key > bestKey) {
+        bestKey = key;
+        best = s;
+      }
+    }
+    return best;
   }
 
   private pickSquad(): number {
@@ -264,11 +365,27 @@ export class Match {
         seat.slot.latest = null; // applied; sim keeps it on the player from here
       }
     }
+    // Freshly-disconnected bodies stop moving via a recorded idle input.
+    for (const [id, cmd] of this.pendingIdleInputs) {
+      if (this.worldState.players.has(id)) inputs.set(id, cmd);
+    }
+    this.pendingIdleInputs.clear();
     this.recorderState?.recordTick(this.worldState.tick + 1, inputs);
     const events = stepWorld(this.worldState, inputs, this.cfg, this.map);
     if (events.length > 0) {
       this.opts.onSimEvents?.(this.worldState.tick, events);
       this.pendingEvents.push(...events);
+    }
+
+    // Expire limbo seats whose grace window lapsed (checked ~1Hz).
+    if (this.limbo.size > 0 && this.worldState.tick % this.cfg.tick.simHz === 0) {
+      for (const [token, parked] of this.limbo) {
+        if (this.worldState.tick < parked.expiresTick) continue;
+        this.limbo.delete(token);
+        removePlayerSpillingGold(this.worldState, parked.seat.id);
+        this.recorderState?.recordLeave(parked.seat.id, this.worldState.tick);
+        this.broadcastEvent({ k: 'playerLeft', tk: this.worldState.tick, id: parked.seat.id });
+      }
     }
 
     if (this.worldState.tick % this.cfg.tick.snapshotEveryTicks === 0) {
@@ -408,6 +525,9 @@ export class Match {
     this.currentSeed++;
     this.worldState = createWorld(this.currentSeed, this.cfg, this.map);
     this.pendingEvents = [];
+    // Limbo seats belong to the old world; a returner just joins fresh.
+    this.limbo.clear();
+    this.pendingIdleInputs.clear();
     this.recorderState = this.opts.record
       ? new ReplayRecorder(this.currentSeed, this.cfg.name, this.map.id)
       : null;
@@ -424,7 +544,7 @@ export class Match {
       this.recorderState?.recordJoin(player);
     }
     for (const seat of this.seats.values()) {
-      this.send(seat, this.buildWelcome(seat.id, seat.squad));
+      this.send(seat, this.buildWelcome(seat));
     }
     this.opts.onRestart?.(this.currentSeed);
   }

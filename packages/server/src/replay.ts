@@ -1,6 +1,7 @@
 import type { ClassId, GameConfig } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import { stepWorld } from '@shared/sim/step';
+import { removePlayerSpillingGold } from '@shared/sim/systems/economy';
 import type { InputCmd, Player, PlayerId } from '@shared/sim/world';
 import { createWorld, hashWorld, spawnPlayer } from '@shared/sim/world';
 
@@ -112,7 +113,9 @@ export function replayToHash(
       }
     }
     while (leaveIdx < record.leaves.length && record.leaves[leaveIdx]!.tick === t) {
-      world.players.delete(record.leaves[leaveIdx++]!.id);
+      // Same spill-then-delete the live server applies — a leave replayed as a
+      // bare delete would destroy the sack and fork the hash.
+      removePlayerSpillingGold(world, record.leaves[leaveIdx++]!.id);
     }
     while (classIdx < record.classes.length && record.classes[classIdx]!.tick === t) {
       const c = record.classes[classIdx++]!;

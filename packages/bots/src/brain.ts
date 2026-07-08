@@ -102,6 +102,12 @@ export class BotBrain {
   private state: FsmState = 'ROAM';
   private readonly enemies = new Map<number, TrackedEnemy>();
   private readonly bounties = new Map<number, number>();
+  /** victimId -> tick until which they're spawn-protected in our eyes.
+   *  Anti-farm already pays ZERO for fresh-spawn kills; hunting them anyway
+   *  is pure spawn-camping grief — worst possible feel for human players. */
+  private readonly freshUntil = new Map<number, number>();
+  /** attackerId -> last tick they hit US (self-defense overrides etiquette). */
+  private readonly aggressors = new Map<number, number>();
   private targetId = -1;
   private prevEnts = new Map<number, { x: number; y: number; tick: number }>();
   private prevHp = -1;
@@ -171,6 +177,8 @@ export class BotBrain {
         }
         this.enemies.clear();
         this.bounties.clear();
+        this.freshUntil.clear();
+        this.aggressors.clear();
         this.prevEnts.clear();
         this.you = null;
         this.state = 'ROAM';
@@ -207,6 +215,13 @@ export class BotBrain {
           } else if (ev.k === 'kill') {
             this.enemies.delete(ev.victim); // dead targets stop existing
             if (ev.victim === this.targetId) this.targetId = -1;
+            // Respawn delay + fresh-spawn window: leave them alone until then.
+            const hz = this.tickRate;
+            const respawnSec = this.cfg?.player.respawnSec ?? 8;
+            const freshSec = this.cfg?.bounty.freshSpawnSec ?? 10;
+            this.freshUntil.set(ev.victim, ev.tk + Math.round((respawnSec + freshSec) * hz));
+          } else if (ev.k === 'hit' && ev.victim === this.myId) {
+            this.aggressors.set(ev.attacker, ev.tk);
           }
         }
         break;
@@ -337,6 +352,12 @@ export class BotBrain {
     let best: TrackedEnemy | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
     for (const en of this.enemies.values()) {
+      // Spawn etiquette: skip protected fresh spawns (they're worth 0 gold
+      // anyway) — unless they hit us recently (self-defense) or picked up a
+      // load (carrying gold makes anyone fair game).
+      const protectedNow = tick < (this.freshUntil.get(en.id) ?? -1);
+      const aggro = tick - (this.aggressors.get(en.id) ?? -1_000_000) < 90;
+      if (protectedNow && !aggro && !en.carrying) continue;
       const d = Math.hypot(en.x - you.x, en.y - you.y);
       const staleness = (tick - en.lastSeenTick) / this.tickRate;
       const bounty = this.bounties.get(en.id) ?? 0;

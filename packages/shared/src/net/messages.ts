@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // ---------------------------------------------------------------- client → server
 
@@ -17,6 +17,9 @@ export interface HelloMsg {
   bot?: boolean;
   /** Preferred class; server assigns a squad-balanced default when absent. */
   cls?: ClassId;
+  /** Resume token from a previous welcome: reclaim the SAME player (body,
+   *  gold, bounty) within the grace window after a refresh/disconnect. */
+  resume?: string;
 }
 
 export interface InputMsg {
@@ -68,6 +71,8 @@ export interface WelcomeMsg {
   phase: number;
   phaseEndsTick: number;
   roster: RosterEntry[];
+  /** Present this in a future hello to reclaim this seat (refresh survival). */
+  resume: string;
 }
 
 // Entity state flags (EntitySnap.st bitmask).

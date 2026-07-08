@@ -42,12 +42,26 @@ const match = new Match({
 });
 
 // In-process bots fill seats from the start (plan: any 0–12 human mix is a
-// valid playtest). They speak the same protocol over LocalTransport.
-for (let i = 0; i < botCount; i++) {
+// valid playtest). They speak the same protocol over LocalTransport. Humans
+// evict bots when the match is full (see Match.join); when humans leave, this
+// top-up loop refills back to --bots (never past capacity, never in a
+// human-full match).
+let botSerial = 0;
+function spawnBot(): void {
+  botSerial++;
   const pair = createLocalPair();
   match.addConn(pair.serverEnd);
-  new LocalBotDriver(pair.clientEnd, new BotBrain(seed * 1009 + i * 7919), `bot${i + 1}`).start();
+  new LocalBotDriver(
+    pair.clientEnd,
+    new BotBrain(seed * 1009 + botSerial * 7919),
+    `bot${botSerial}`,
+  ).start();
 }
+for (let i = 0; i < botCount; i++) spawnBot();
+const capacity = cfg.match.squads * cfg.match.playersPerSquad;
+setInterval(() => {
+  while (match.botSeats < botCount && match.playerCount < capacity) spawnBot();
+}, 2000);
 
 const haveClient = existsSync(join(staticDir, 'index.html'));
 const httpServer = createServer((req, res) => {

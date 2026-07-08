@@ -69,8 +69,11 @@ cloudflared tunnel --url http://localhost:8787
 
 Send friends the printed `https://….trycloudflare.com` URL. The server serves
 the built client and the WebSocket on the same origin, so the tunnel carries
-everything. Humans replace bots seat-by-seat as they join; matches restart
-automatically 30s after each end screen.
+everything. Humans replace bots seat-by-seat as they join (bots refill freed
+seats when humans leave); matches restart automatically 30s after each end
+screen. Refreshing the page is safe: for 60 seconds your body stays in the
+match — standing where you left it, killable, gold still on its back — and
+F5 puts you right back in it.
 
 ## Deploy (stable URL)
 

@@ -49,6 +49,9 @@ export function decodeClientMsg(data: unknown): DecodeResult<ClientMsg> {
       if (m.cls !== undefined && (typeof m.cls !== 'string' || !CLASS_IDS.has(m.cls))) {
         return { ok: false, error: 'hello: bad cls' };
       }
+      if (m.resume !== undefined && (typeof m.resume !== 'string' || m.resume.length > 64)) {
+        return { ok: false, error: 'hello: bad resume' };
+      }
       break;
     case 'input':
       for (const f of ['seq', 'tick', 'mx', 'my', 'ax', 'ay', 'b'] as const) {
