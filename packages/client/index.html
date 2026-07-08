@@ -196,6 +196,46 @@
         opacity: 0;
         transition: opacity 0.4s;
       }
+      #carry {
+        color: #f2d68c;
+        display: none;
+      }
+      #prompt {
+        bottom: 120px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 14px;
+        color: #f2d68c;
+        display: none;
+      }
+      #prompt .key {
+        display: inline-block;
+        border: 1px solid #f2d68c;
+        border-radius: 3px;
+        padding: 0 5px;
+        margin-right: 4px;
+        font-weight: bold;
+      }
+      #prompt .sub {
+        font-size: 12px;
+        color: #b9ad98;
+        margin-top: 3px;
+      }
+      #bankwrap {
+        width: 260px;
+        height: 7px;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #7a6544;
+        border-radius: 4px;
+        overflow: hidden;
+        display: none;
+      }
+      #bankfill {
+        height: 100%;
+        width: 0%;
+        background: #f2d68c;
+      }
       #vignette {
         inset: 0;
         box-shadow: inset 0 0 120px 40px rgba(220, 40, 30, 0.55);
@@ -215,13 +255,16 @@
     <div id="board" class="hud"></div>
     <div id="killfeed" class="hud"></div>
     <div id="selfbar" class="hud">
+      <div id="bankwrap"><div id="bankfill"></div></div>
       <div id="hpwrap"><div id="hpfill"></div></div>
       <div id="selfmeta">
         <span id="selfclass"></span>
         <span id="dash"></span>
         <span id="selfbounty"></span>
+        <span id="carry"></span>
       </div>
     </div>
+    <div id="prompt" class="hud"></div>
     <div id="deathveil" class="hud"></div>
     <div id="deathmsg" class="hud"></div>
     <div id="endscreen" class="hud"></div>

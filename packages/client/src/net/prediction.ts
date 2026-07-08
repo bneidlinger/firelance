@@ -1,6 +1,7 @@
 import type { ClassId, GameConfig } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import type { YouSnap } from '@shared/net/messages';
+import { carrySpeedFactor } from '@shared/sim/systems/economy';
 import {
   createMoveState,
   kitMoveParams,
@@ -48,6 +49,9 @@ export class Prediction {
   private params: MoveParams;
   private cls: ClassId;
   private aliveState = true;
+  /** Carried gold from the last acked snapshot — the carry-slow the server is
+   *  applying to us. Lags the trickle by one RTT; smoothing absorbs the sliver. */
+  private carried = 0;
   readonly stats: PredictionStats = {
     reconciles: 0,
     lastError: 0,
@@ -76,7 +80,8 @@ export class Prediction {
   /** Apply a locally sampled input immediately (called at the sim rate, 30Hz). */
   applyLocalInput(seq: number, cmd: InputCmd): void {
     if (!this.initialized || !this.aliveState) return;
-    stepMovement(this.state, cmd, this.params, this.map, 1 / this.cfg.tick.simHz);
+    const factor = carrySpeedFactor(this.cfg, this.carried);
+    stepMovement(this.state, cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor);
     this.pending.push({ seq, cmd });
     if (this.pending.length > 120) this.pending.shift(); // safety bound (4s)
     this.stats.pendingInputs = this.pending.length;
@@ -88,6 +93,7 @@ export class Prediction {
       this.cls = you.cls;
       this.params = kitMoveParams(this.cfg, you.cls);
     }
+    this.carried = you.carried;
 
     const authoritative: MoveState = {
       x: you.x,
@@ -135,8 +141,9 @@ export class Prediction {
     const replayed = authoritative;
     const preX = this.state.x;
     const preY = this.state.y;
+    const factor = carrySpeedFactor(this.cfg, this.carried);
     for (const p of this.pending) {
-      stepMovement(replayed, p.cmd, this.params, this.map, 1 / this.cfg.tick.simHz);
+      stepMovement(replayed, p.cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor);
     }
 
     const errX = preX - replayed.x;

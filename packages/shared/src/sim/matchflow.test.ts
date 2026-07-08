@@ -14,8 +14,9 @@ import {
 } from './world';
 
 // Match flow: countdown (free-move warmup, combat gated) → live (hard reset,
-// timer) → ended (winner by keep gold, world frozen). The server-level
-// auto-restart is tested in packages/server/test.
+// timer) → ended (winner by BANKED gold — M2's core rule switch; keep gold is
+// just unsecured wealth). The server-level auto-restart is tested in
+// packages/server/test.
 
 const arena = parseMap(
   'flow-arena',
@@ -66,7 +67,10 @@ describe('countdown → live', () => {
     p.bounty = 99;
     p.kills = 3;
     w.squads[0]!.keepGold = 500; // pollute pre-live state
-    w.goldMinted = 500;
+    w.squads[0]!.bankedGold = 200;
+    w.squads[0]!.lifetimeGold = 700;
+    p.carried = 50;
+    w.goldMinted = 750;
     p.input = { mx: 1, my: 0, ax: 1, ay: 0, b: 0 };
     run(w, cfg, secToTicks(cfg, cfg.match.countdownSec) + 1);
     expect(w.phase).toBe(PHASE_LIVE);
@@ -74,19 +78,23 @@ describe('countdown → live', () => {
     expect(Math.hypot(p.x - keep.keepX, p.y - keep.keepY)).toBeLessThan(2);
     expect(p.bounty).toBe(0);
     expect(p.kills).toBe(0);
+    expect(p.carried).toBe(0);
     expect(w.goldMinted).toBe(0);
     expect(keep.keepGold).toBe(0);
+    expect(keep.bankedGold).toBe(0);
+    expect(keep.lifetimeGold).toBe(0);
+    expect(w.sacks.size).toBe(0);
   });
 });
 
 describe('live → ended', () => {
-  it('ends at durationSec with winners = richest squads and sorted standings', () => {
+  it('ends at durationSec with winners = most BANKED gold and sorted standings', () => {
     const cfg = smokeConfig; // countdown 0, 150s
     const w = createWorld(1, cfg, arena);
     spawnPlayer(w, cfg, 0, 'a', true, 'ranger', 3.5, 2.5);
     run(w, cfg, 2); // now live (countdown 0 ⇒ tick 1 transition)
     expect(w.phase).toBe(PHASE_LIVE);
-    w.squads[2]!.keepGold = 300; // hand the lead to squad 2
+    w.squads[2]!.bankedGold = 300; // hand the lead to squad 2
     w.goldMinted = 300;
     const endTick = w.phaseEndsTick;
     const events = run(w, cfg, endTick - w.tick);
@@ -97,12 +105,24 @@ describe('live → ended', () => {
     expect(end && end.k === 'matchEnd' ? end.winners : []).toEqual([2]);
   });
 
+  it('a fat vault loses to a modest bank — only banked gold wins', () => {
+    const cfg = smokeConfig;
+    const w = createWorld(1, cfg, arena);
+    run(w, cfg, 2);
+    w.squads[0]!.keepGold = 5000; // hoarder: rich and unsecured
+    w.squads[0]!.lifetimeGold = 5000;
+    w.squads[2]!.bankedGold = 100; // banker: modest but safe
+    w.goldMinted = 5100;
+    run(w, cfg, w.phaseEndsTick - w.tick);
+    expect(w.winners).toEqual([2]);
+  });
+
   it('ties produce multiple winners', () => {
     const cfg = smokeConfig;
     const w = createWorld(1, cfg, arena);
     run(w, cfg, 2);
-    w.squads[1]!.keepGold = 100;
-    w.squads[3]!.keepGold = 100;
+    w.squads[1]!.bankedGold = 100;
+    w.squads[3]!.bankedGold = 100;
     w.goldMinted = 200;
     run(w, cfg, w.phaseEndsTick - w.tick);
     expect(w.winners).toEqual([1, 3]);

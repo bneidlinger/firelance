@@ -16,6 +16,10 @@
     "bots": "tsx packages/bots/src/runner.ts --count 4",
     "match:smoke": "tsx scripts/smoke-match.ts",
     "match:headless": "tsx scripts/headless-match.ts",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "npm -w @firelance/client run build",
+    "build:server": "node scripts/build-server.mjs",
+    "start": "node dist/server.mjs --config prototype --bots 11 --static packages/client/dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/bots && tsc -p packages/client && tsc -p tsconfig.json",
@@ -24,6 +28,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.24.2",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

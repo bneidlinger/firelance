@@ -22,6 +22,7 @@ export interface InputCmd {
 export const BTN_FIRE = 1;
 export const BTN_BLOCK = 2;
 export const BTN_DASH = 4;
+export const BTN_INTERACT = 8;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 
@@ -89,6 +90,10 @@ export interface Player {
   assists: number;
   /** victimId -> {count, lastTick} for diminishing repeat-kill rewards. */
   repeatKills: Map<PlayerId, { count: number; lastTick: number }>;
+  /** Gold physically carried (withdrawn or looted). Drops as a sack on death. */
+  carried: number;
+  /** Deposit channel progress in ticks (0 = not channeling). */
+  bankTicks: number;
 
   /** Last applied input; server reuses it when a fresh one hasn't arrived (TCP delay). */
   input: InputCmd;
@@ -117,6 +122,19 @@ export interface SquadState {
   keepY: number;
   /** Gold in the keep vault. ONLY systems/economy.ts mutates this. */
   keepGold: number;
+  /** Gold banked at towns — safe forever, THE score. ONLY economy.ts mutates. */
+  bankedGold: number;
+  /** Total gold ever minted to this keep; ceil(lifetime × reserveFraction) must stay home. */
+  lifetimeGold: number;
+}
+
+/** Dropped carried gold. Sits on the ground until any squad walks over it. */
+export interface LootSack {
+  id: number;
+  x: number;
+  y: number;
+  gold: number;
+  bornTick: number;
 }
 
 export interface World {
@@ -132,6 +150,7 @@ export interface World {
   goldMinted: number;
   players: Map<PlayerId, Player>;
   projectiles: Map<number, Projectile>;
+  sacks: Map<number, LootSack>;
   squads: SquadState[];
 }
 
@@ -166,7 +185,14 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
   const keeps = assignKeeps(map, cfg.match.squads);
   const squads: SquadState[] = [];
   for (let i = 0; i < cfg.match.squads; i++) {
-    squads.push({ id: i, keepX: keeps[i]!.x, keepY: keeps[i]!.y, keepGold: 0 });
+    squads.push({
+      id: i,
+      keepX: keeps[i]!.x,
+      keepY: keeps[i]!.y,
+      keepGold: 0,
+      bankedGold: 0,
+      lifetimeGold: 0,
+    });
   }
   return {
     tick: 0,
@@ -178,6 +204,7 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
     goldMinted: 0,
     players: new Map(),
     projectiles: new Map(),
+    sacks: new Map(),
     squads,
   };
 }
@@ -235,6 +262,8 @@ export function spawnPlayer(
     deaths: 0,
     assists: 0,
     repeatKills: new Map(),
+    carried: 0,
+    bankTicks: 0,
     input: { ...IDLE_INPUT },
   };
   world.players.set(p.id, p);
@@ -278,6 +307,8 @@ export function serializeWorld(world: World): string {
     d: p.deaths,
     a: p.assists,
     rk: [...p.repeatKills.entries()].map(([v, r]) => [v, r.count, r.lastTick]),
+    cg: p.carried,
+    bt: p.bankTicks,
   }));
   const projectiles = [...world.projectiles.values()].map((pr) => ({
     id: pr.id,
@@ -293,7 +324,19 @@ export function serializeWorld(world: World): string {
     tl: pr.ticksLeft,
     bt: pr.bornTick,
   }));
-  const squads = world.squads.map((s) => ({ id: s.id, g: s.keepGold }));
+  const sacks = [...world.sacks.values()].map((s) => ({
+    id: s.id,
+    x: s.x,
+    y: s.y,
+    g: s.gold,
+    bt: s.bornTick,
+  }));
+  const squads = world.squads.map((s) => ({
+    id: s.id,
+    g: s.keepGold,
+    bk: s.bankedGold,
+    lt: s.lifetimeGold,
+  }));
   return JSON.stringify({
     tick: world.tick,
     rng: world.rng.s,
@@ -304,6 +347,7 @@ export function serializeWorld(world: World): string {
     minted: world.goldMinted,
     players,
     projectiles,
+    sacks,
     squads,
   });
 }

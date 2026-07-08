@@ -23,8 +23,13 @@ function goLive(world: World, cfg: GameConfig): void {
   world.phase = PHASE_LIVE;
   world.phaseEndsTick = world.tick + secToTicks(cfg, cfg.match.durationSec);
   world.projectiles.clear();
+  world.sacks.clear();
   world.goldMinted = 0;
-  for (const s of world.squads) s.keepGold = 0;
+  for (const s of world.squads) {
+    s.keepGold = 0;
+    s.bankedGold = 0;
+    s.lifetimeGold = 0;
+  }
   for (const p of world.players.values()) {
     const squad = world.squads[p.squad]!;
     const [ox, oy] = SPAWN_OFFSETS[p.id % SPAWN_OFFSETS.length]!;
@@ -50,6 +55,8 @@ function goLive(world: World, cfg: GameConfig): void {
     p.deaths = 0;
     p.assists = 0;
     p.repeatKills.clear();
+    p.carried = 0;
+    p.bankTicks = 0;
   }
 }
 
@@ -57,17 +64,22 @@ function endMatch(world: World, cfg: GameConfig, events: SimEvent[]): void {
   world.phase = PHASE_ENDED;
   world.phaseEndsTick = world.tick + secToTicks(cfg, cfg.match.restartSec);
 
-  let bestGold = -1;
+  // M2: only BANKED gold wins — keep gold is unsecured wealth, carried gold is
+  // in flight, sacks are anyone's. Equal banked = shared win; the standings
+  // list additionally orders by keep gold, then kills, for the end screen.
+  let bestBanked = -1;
   for (const s of world.squads) {
-    if (s.keepGold > bestGold) bestGold = s.keepGold;
+    if (s.bankedGold > bestBanked) bestBanked = s.bankedGold;
   }
-  world.winners = world.squads.filter((s) => s.keepGold === bestGold).map((s) => s.id);
+  world.winners = world.squads.filter((s) => s.bankedGold === bestBanked).map((s) => s.id);
 
   const kills = new Array<number>(world.squads.length).fill(0);
   for (const p of world.players.values()) kills[p.squad] = (kills[p.squad] ?? 0) + p.kills;
   const standings = world.squads
-    .map((s) => ({ squad: s.id, gold: s.keepGold, kills: kills[s.id] ?? 0 }))
-    .sort((a, b) => b.gold - a.gold || b.kills - a.kills || a.squad - b.squad);
+    .map((s) => ({ squad: s.id, banked: s.bankedGold, gold: s.keepGold, kills: kills[s.id] ?? 0 }))
+    .sort(
+      (a, b) => b.banked - a.banked || b.gold - a.gold || b.kills - a.kills || a.squad - b.squad,
+    );
 
   events.push({ k: 'phase', tk: world.tick, phase: PHASE_ENDED, endsTick: world.phaseEndsTick });
   events.push({ k: 'matchEnd', tk: world.tick, winners: world.winners, standings });

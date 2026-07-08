@@ -67,6 +67,15 @@ export const defaultConfig: GameConfig = {
     repeatKillWindowSec: 90,
     tierThresholds: [0, 50, 150, 300, 500, 800],
   },
+  banking: {
+    withdrawPerSec: 300,
+    reserveFraction: 0.25,
+    interactRadius: 2.5,
+    bankChannelSec: 4,
+    slowPer100Gold: 0.035, // 500g = −17.5%; floor at 1430g+
+    minSpeedFactor: 0.5,
+    sackPickupRadius: 0.9,
+  },
   vision: {
     radius: 14,
     forestRadius: 4,

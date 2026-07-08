@@ -1,11 +1,12 @@
 import type { ClassId, GameConfig } from '@shared/config';
-import { getKit } from '@shared/config';
-import { bountyTier } from '@shared/sim/systems/economy';
+import { getKit, secToTicks } from '@shared/config';
+import { bountyTier, carrySpeedFactor } from '@shared/sim/systems/economy';
 import type { RosterEntry, ScoreMsg, YouSnap } from '@shared/net/messages';
 import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE } from '@shared/sim/world';
 
-// DOM HUD: timer + squad gold, bounty board, killfeed with payouts, own
-// hp/dash/bounty bar, death overlay, end screen, toasts, damage vignette.
+// DOM HUD: timer + banked-gold standings, bounty board, killfeed with payouts
+// and dropped-sack drama, own hp/dash/bounty/carry bar, deposit channel bar,
+// contextual banking prompts, death overlay, end screen, toasts, vignette.
 // DOM beats canvas text for iteration speed at this stage.
 
 const TIER_NAMES = ['Nobody', 'Known', 'Wanted', 'Hunted', 'Infamous', 'Crownmarked'];
@@ -35,6 +36,9 @@ export class Hud {
     el('deathmsg').style.display = 'none';
     el('board').innerHTML = '';
     el('squadgold').innerHTML = '';
+    el('carry').style.display = 'none';
+    el('bankwrap').style.display = 'none';
+    el('prompt').style.display = 'none';
   }
 
   // ---- own state -----------------------------------------------------------
@@ -59,6 +63,26 @@ export class Hud {
     const sb = el('selfbounty');
     sb.textContent = `Bounty ${you.bounty} · ${TIER_NAMES[tier]}`;
     sb.style.color = TIER_COLORS[tier]!;
+
+    // Carried load + how much it's slowing you (the risk you're holding).
+    const carry = el('carry');
+    if (you.carried > 0) {
+      const slowPct = Math.round((1 - carrySpeedFactor(this.cfg, you.carried)) * 100);
+      carry.textContent = `◆ ${you.carried}g${slowPct > 0 ? ` · −${slowPct}% speed` : ''}`;
+      carry.style.display = 'inline';
+    } else {
+      carry.style.display = 'none';
+    }
+
+    // Deposit channel progress bar (only while channeling).
+    const wrap = el('bankwrap');
+    if (you.bankTicks > 0) {
+      const total = secToTicks(this.cfg, this.cfg.banking.bankChannelSec);
+      el('bankfill').style.width = `${Math.min(100, (you.bankTicks / total) * 100)}%`;
+      wrap.style.display = 'block';
+    } else {
+      wrap.style.display = 'none';
+    }
 
     // Death overlay with respawn countdown + class-switch hint.
     const dead = !you.alive;
@@ -86,6 +110,17 @@ export class Hud {
     this.toastTimer = setTimeout(() => (t.style.opacity = '0'), 1800);
   }
 
+  /** Persistent contextual prompt ("Hold E to …"); null hides it. */
+  prompt(html: string | null): void {
+    const p = el('prompt');
+    if (html === null) {
+      p.style.display = 'none';
+    } else {
+      if (p.innerHTML !== html) p.innerHTML = html;
+      p.style.display = 'block';
+    }
+  }
+
   // ---- killfeed ------------------------------------------------------------
 
   killLine(
@@ -95,8 +130,8 @@ export class Hud {
     victimSquad: number,
     gold: number,
     victimBounty: number,
+    droppedGold: number,
   ): void {
-    const div = document.createElement('div');
     const k = killer
       ? `<span style="color:${SQUAD_CSS[killerSquad ?? 0]}">${esc(killer)}</span> ⚔ `
       : '';
@@ -105,9 +140,26 @@ export class Hud {
         ? ` <span style="color:#e0b95e">+${gold}g</span>` +
           (victimBounty > 0 ? ` <span style="color:#b9ad98">(bounty ${victimBounty})</span>` : '')
         : ' <span style="color:#777">(no reward)</span>';
-    div.innerHTML = `${k}<span style="color:${SQUAD_CSS[victimSquad]}">${esc(victim)}</span>${payout}`;
-    const feed = el('killfeed');
-    feed.prepend(div);
+    // The vulture bell: a dead carrier's load is now on the ground, somewhere.
+    const dropped =
+      droppedGold > 0 ? ` <span style="color:#f2d68c">dropped ${droppedGold}g!</span>` : '';
+    this.feedLine(
+      `${k}<span style="color:${SQUAD_CSS[victimSquad]}">${esc(victim)}</span>${payout}${dropped}`,
+    );
+  }
+
+  /** Banking success — global news; the scoreboard just moved. */
+  bankedLine(name: string, squad: number, amount: number): void {
+    this.feedLine(
+      `<span style="color:${SQUAD_CSS[squad]}">${esc(name)}</span>` +
+        ` <span style="color:#f2d68c">banked ${amount}g</span> 🏦`,
+    );
+  }
+
+  private feedLine(html: string): void {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    el('killfeed').prepend(div);
     this.killfeedLines.unshift({ el: div, bornMs: performance.now() });
     while (this.killfeedLines.length > 6) {
       this.killfeedLines.pop()!.el.remove();
@@ -118,9 +170,17 @@ export class Hud {
 
   score(msg: ScoreMsg, roster: Map<number, RosterEntry>): void {
     this.lastScore = msg;
+    // Topbar = the SCORE: banked gold per squad (public). Your own entry adds
+    // the private vault detail — keep balance and what the reserve rule lets out.
     const gold = el('squadgold');
     gold.innerHTML = msg.squads
-      .map((s) => `<span style="color:${SQUAD_CSS[s.id]}">◆ ${s.g}g</span>`)
+      .map((s) => {
+        const own =
+          s.g !== undefined
+            ? ` <span style="color:#b9ad98">(keep ${s.g}g · ${s.wd ?? 0} free)</span>`
+            : '';
+        return `<span style="color:${SQUAD_CSS[s.id]}">🏦 ${s.bk}g${own}</span>`;
+      })
       .join('');
 
     const top = [...msg.players].sort((a, b) => b.b - a.b || b.k - a.k).slice(0, 5);
@@ -164,14 +224,14 @@ export class Hud {
 
   endScreen(
     winners: number[],
-    standings: Array<{ squad: number; gold: number; kills: number }>,
+    standings: Array<{ squad: number; banked: number; gold: number; kills: number }>,
     roster: Map<number, RosterEntry>,
     ownSquad: number,
   ): void {
     const names = ['Red', 'Blue', 'Green', 'Gold'];
     const title =
       winners.length === 1
-        ? `${names[winners[0]!]} squad takes the field`
+        ? `${names[winners[0]!]} squad banked the most`
         : `Tie: ${winners.map((w) => names[w]).join(' & ')}`;
     const rows = standings
       .map((s) => {
@@ -182,14 +242,15 @@ export class Hud {
         const you = s.squad === ownSquad ? ' ◀ you' : '';
         return (
           `<tr><td style="color:${SQUAD_CSS[s.squad]}">${names[s.squad]}</td>` +
-          `<td>${s.gold}g</td><td>${s.kills} kills</td>` +
+          `<td style="color:#f2d68c">${s.banked}g</td>` +
+          `<td style="color:#b9ad98">${s.gold}g</td><td>${s.kills}</td>` +
           `<td style="color:#b9ad98">${members}${you}</td></tr>`
         );
       })
       .join('');
     el('endscreen').innerHTML =
       `<h1>${title}</h1>` +
-      `<table><tr><th>Squad</th><th>Keep gold</th><th>Kills</th><th>Riders</th></tr>${rows}</table>` +
+      `<table><tr><th>Squad</th><th>Banked</th><th>Left in keep</th><th>Kills</th><th>Riders</th></tr>${rows}</table>` +
       `<div class="restart"></div>`;
     el('endscreen').style.display = 'block';
   }

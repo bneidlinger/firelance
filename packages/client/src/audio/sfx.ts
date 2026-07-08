@@ -88,6 +88,8 @@ export type SfxName =
   | 'block'
   | 'death'
   | 'coin'
+  | 'pickup'
+  | 'banked'
   | 'respawn'
   | 'dash'
   | 'countdown'
@@ -124,6 +126,19 @@ const SOUNDS: Record<SfxName, Note[]> = {
   coin: [
     { wave: 'square', f0: 990, d: 0.07, g: 0.3 },
     { wave: 'square', f0: 1320, d: 0.12, g: 0.3, at: 0.07 },
+  ],
+  // Heavier clink than `coin` — a whole sack changing hands.
+  pickup: [
+    { wave: 'square', f0: 660, d: 0.06, g: 0.3 },
+    { wave: 'square', f0: 990, d: 0.08, g: 0.32, at: 0.05 },
+    { wave: 'noise', f0: 0, d: 0.07, g: 0.2, lp: 5200 },
+  ],
+  // The payoff chime: gold is SAFE. Rising triad, brighter than matchEnd.
+  banked: [
+    { wave: 'triangle', f0: 659, d: 0.1, g: 0.4 },
+    { wave: 'triangle', f0: 880, d: 0.1, g: 0.4, at: 0.09 },
+    { wave: 'triangle', f0: 1319, d: 0.28, g: 0.42, at: 0.18 },
+    { wave: 'square', f0: 1319, d: 0.1, g: 0.12, at: 0.18 },
   ],
   respawn: [
     { wave: 'triangle', f0: 330, f1: 660, d: 0.18, g: 0.35 },

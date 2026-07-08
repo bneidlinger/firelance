@@ -48,6 +48,30 @@ describe('movement kernel', () => {
     expect(speed).toBeCloseTo(RANGER.moveSpeed, 6);
   });
 
+  it('speedFactor scales walking exactly (the M2 carry slow enters the kernel)', () => {
+    const s = createMoveState(5.5, 5.5);
+    stepMovement(s, input(1, 0), RANGER, map, DT, 0.7);
+    expect(s.vx).toBeCloseTo(RANGER.moveSpeed * 0.7, 6);
+    // Identical calls with the same factor on both "sides" are bit-identical —
+    // the client predicts carriers through this exact path.
+    const a = createMoveState(5.5, 5.5);
+    const b = createMoveState(5.5, 5.5);
+    for (let i = 0; i < 30; i++) {
+      stepMovement(a, input(1, 0.3), RANGER, map, DT, 0.62);
+      stepMovement(b, input(1, 0.3), RANGER, map, DT, 0.62);
+    }
+    expect(a).toEqual(b);
+  });
+
+  it('speedFactor does NOT slow the dash (the escape tool keeps full strength)', () => {
+    const slow = createMoveState(5.5, 6.5);
+    const fast = createMoveState(5.5, 5.5);
+    stepMovement(slow, input(1, 0, BTN_DASH), RANGER, map, DT, 0.5);
+    stepMovement(fast, input(1, 0, BTN_DASH), RANGER, map, DT, 1);
+    expect(slow.vx).toBeCloseTo(fast.vx, 6);
+    expect(slow.vx).toBeCloseTo(RANGER.dashSpeed, 6);
+  });
+
   it('stops at walls instead of tunneling', () => {
     const s = createMoveState(5.5, 5.5);
     run(s, input(-1, 0), 60); // 2s left at 5 u/s would reach x=-4.5 unimpeded

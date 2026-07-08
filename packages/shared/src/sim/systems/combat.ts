@@ -4,7 +4,7 @@ import type { SimEvent } from '../events';
 import type { Player, PlayerId, World } from '../world';
 import { ATK_IDLE } from '../world';
 import { isBlocking } from './movement';
-import { settleKillEconomy } from './economy';
+import { dropCarriedAsSack, settleKillEconomy } from './economy';
 
 // Damage application and death resolution — the single path every point of
 // damage takes regardless of source (arrow, melee; firebomb in M3). Keeping
@@ -81,6 +81,9 @@ export function processDeath(
   victim.atkPhase = ATK_IDLE;
   victim.atkTicks = 0;
   victim.atkHitIds = [];
+  victim.bankTicks = 0;
+  // Dying with gold on your back spills it — the moment banking runs go wrong.
+  const sack = dropCarriedAsSack(world, victim);
 
   // Assists: enemies who damaged the victim inside the window, minus the killer.
   const windowTicks = secToTicks(cfg, cfg.combat.assistWindowSec);
@@ -113,6 +116,7 @@ export function processDeath(
     victim: victim.id,
     gold,
     victimBounty,
+    droppedGold: sack?.gold ?? 0,
     assists,
   });
 }

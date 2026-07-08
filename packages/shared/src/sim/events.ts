@@ -4,8 +4,9 @@
 // snapshot and clients replay them on the delayed interp timeline.
 //
 // Distribution policy lives in the server (match.ts), but the intent is fixed
-// here: kill/phase/end are GLOBAL (bounty is public information by design);
-// projectile/hit events are POSITIONAL (fog-filtered); respawns are SQUAD-only.
+// here: kill/phase/end/banked are GLOBAL (bounty and banking success are
+// public information by design — banked gold is the score); projectile/hit/
+// sackTaken events are POSITIONAL (fog-filtered); respawns are SQUAD-only.
 
 export type SimEvent =
   // -- combat, positional
@@ -48,7 +49,24 @@ export type SimEvent =
       gold: number;
       /** Victim's bounty at the moment of death (killfeed drama). */
       victimBounty: number;
+      /** Carried gold the victim spilled as a ground sack (0 = empty-handed).
+       *  Amount is public (vulture bait by design) — the sack POSITION is not. */
+      droppedGold: number;
       assists: number[];
+    }
+  // -- banking
+  /** A deposit channel completed — global; the scoreboard moved. */
+  | { k: 'banked'; tk: number; squad: number; by: number; amount: number; x: number; y: number }
+  /** A ground sack was scooped — positional; you only learn it if you saw it. */
+  | {
+      k: 'sackTaken';
+      tk: number;
+      id: number;
+      by: number;
+      squad: number;
+      gold: number;
+      x: number;
+      y: number;
     }
   // -- match flow, global
   | { k: 'phase'; tk: number; phase: number; endsTick: number }
@@ -56,5 +74,5 @@ export type SimEvent =
       k: 'matchEnd';
       tk: number;
       winners: number[];
-      standings: Array<{ squad: number; gold: number; kills: number }>;
+      standings: Array<{ squad: number; banked: number; gold: number; kills: number }>;
     };

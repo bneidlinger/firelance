@@ -24,7 +24,8 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : fallback;
 }
 
-const port = Number(arg('port', '8787'));
+// --port flag > PORT env (fly.io/PaaS convention) > default.
+const port = Number(arg('port', process.env.PORT ?? '8787'));
 const cfgName = arg('config', 'prototype');
 const botCount = Number(arg('bots', '0'));
 const seed = Number(arg('seed', String((Date.now() / 1000) | 0)));

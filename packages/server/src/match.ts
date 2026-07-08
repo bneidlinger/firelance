@@ -8,9 +8,10 @@ import { stepWorld } from '@shared/sim/step';
 import { isVisibleToSquad } from '@shared/sim/vision';
 import type { InputCmd, Player, PlayerId, World } from '@shared/sim/world';
 import { createWorld, PHASE_ENDED, SPAWN_OFFSETS, spawnPlayer } from '@shared/sim/world';
+import { withdrawableGold } from '@shared/sim/systems/economy';
 import { acceptInput, createInputSlot, type InputSlot } from './inputs';
 import { ReplayRecorder } from './replay';
-import { buildSquadEnts, buildYou } from './snapshot';
+import { buildSquadEnts, buildSquadSacks, buildYou } from './snapshot';
 import type { ClientConn } from './transport';
 
 interface Seat {
@@ -292,6 +293,7 @@ export class Match {
       if (members.length === 0) continue;
       const events = this.filterEventsForSquad(squad);
       const ents = buildSquadEnts(this.worldState, this.map, this.cfg, squad);
+      const sacks = buildSquadSacks(this.worldState, this.map, this.cfg, squad);
       for (const seat of members) {
         const p = this.worldState.players.get(seat.id);
         if (!p) continue;
@@ -304,6 +306,7 @@ export class Match {
           ackSeq: seat.slot.appliedSeq,
           you: buildYou(this.worldState, p),
           ents,
+          sacks,
         });
         this.stats.snapshotsSent++;
       }
@@ -311,9 +314,10 @@ export class Match {
   }
 
   /**
-   * The event fog policy. Kill/phase/end are global (bounty is public info by
-   * design); respawns are squad-private; projectiles, swings, and hits are
-   * positional — with own-squad involvement always visible.
+   * The event fog policy. Kill/phase/end/banked are global (bounty and the
+   * banked score are public info by design); respawns are squad-private;
+   * projectiles, swings, hits, and sack pickups are positional — with
+   * own-squad involvement always visible.
    */
   private filterEventsForSquad(squadId: number): NetEvent[] {
     const out: NetEvent[] = [];
@@ -325,7 +329,11 @@ export class Match {
         case 'kill':
         case 'phase':
         case 'matchEnd':
+        case 'banked':
           out.push(ev);
+          break;
+        case 'sackTaken':
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
           break;
         case 'respawn':
           if (ev.squad === squadId) out.push(ev);
@@ -366,21 +374,33 @@ export class Match {
 
   private sendScore(): void {
     const w = this.worldState;
-    const msg: ServerMsg = {
-      t: 'score',
-      tick: w.tick,
-      phase: w.phase,
-      phaseEndsTick: w.phaseEndsTick,
-      players: [...w.players.values()].map((p) => ({
-        id: p.id,
-        b: p.bounty,
-        k: p.kills,
-        d: p.deaths,
-        a: p.assists,
-      })),
-      squads: w.squads.map((s) => ({ id: s.id, g: s.keepGold })),
-    };
-    for (const seat of this.seats.values()) this.send(seat, msg);
+    const players = [...w.players.values()].map((p) => ({
+      id: p.id,
+      b: p.bounty,
+      k: p.kills,
+      d: p.deaths,
+      a: p.assists,
+    }));
+    // Banked gold is the public score; keep-vault contents are squad-private
+    // (design doc: "vault values" are hidden info) — so score fans out
+    // per-squad, with `g`/`wd` attached only to the recipient's own entry.
+    for (let squad = 0; squad < this.cfg.match.squads; squad++) {
+      const members = this.squadMembers(squad);
+      if (members.length === 0) continue;
+      const msg: ServerMsg = {
+        t: 'score',
+        tick: w.tick,
+        phase: w.phase,
+        phaseEndsTick: w.phaseEndsTick,
+        players,
+        squads: w.squads.map((s) =>
+          s.id === squad
+            ? { id: s.id, bk: s.bankedGold, g: s.keepGold, wd: withdrawableGold(this.cfg, s) }
+            : { id: s.id, bk: s.bankedGold },
+        ),
+      };
+      for (const seat of members) this.send(seat, msg);
+    }
   }
 
   /** End screen elapsed: rebuild the world, re-seat everyone, fresh welcomes. */

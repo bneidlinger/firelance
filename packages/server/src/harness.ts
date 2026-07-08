@@ -35,6 +35,14 @@ export interface CombatStats {
   totalKills: number;
   totalDeaths: number;
   goldMinted: number;
+  /** Gold banked per squad, summed over `banked` events (spans restarts). */
+  bankedBySquad: number[];
+  /** Completed deposit channels. */
+  bankDeposits: number;
+  /** Carriers killed with gold on their back (sacks spawned). */
+  sacksDropped: number;
+  /** Ground sacks scooped up. */
+  sacksLooted: number;
 }
 
 export interface HarnessResult {
@@ -72,6 +80,10 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
     totalKills: 0,
     totalDeaths: 0,
     goldMinted: 0,
+    bankedBySquad: new Array<number>(cfg.match.squads).fill(0),
+    bankDeposits: 0,
+    sacksDropped: 0,
+    sacksLooted: 0,
   };
   let restarts = 0;
 
@@ -93,12 +105,20 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
           break;
         case 'kill':
           combat.totalDeaths++;
+          if (ev.droppedGold > 0) combat.sacksDropped++;
           if (ev.killer !== null) {
             combat.totalKills++;
             const killer = match.world.players.get(ev.killer);
             if (killer)
               combat.killsBySquad[killer.squad] = (combat.killsBySquad[killer.squad] ?? 0) + 1;
           }
+          break;
+        case 'banked':
+          combat.bankDeposits++;
+          combat.bankedBySquad[ev.squad] = (combat.bankedBySquad[ev.squad] ?? 0) + ev.amount;
+          break;
+        case 'sackTaken':
+          combat.sacksLooted++;
           break;
       }
     }
@@ -133,6 +153,7 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
 
   const ticks = Math.round(opts.simSeconds * cfg.tick.simHz);
   const maxTtlTicks = Math.ceil(cfg.classes.ranger.bow!.ttlSec * cfg.tick.simHz) + 1;
+  const maxChannelTicks = Math.ceil(cfg.banking.bankChannelSec * cfg.tick.simHz) + 1;
   let lastSeed = match.seed;
   let ticksInCurrentWorld = 0;
 
@@ -163,6 +184,32 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
         if (p.bounty < 0) violations.push(`tick ${w.tick}: player ${p.id} negative bounty`);
         if (p.alive && !Number.isFinite(p.x + p.y)) {
           violations.push(`tick ${w.tick}: player ${p.id} non-finite position`);
+        }
+        if (p.carried < 0 || !Number.isFinite(p.carried)) {
+          violations.push(`tick ${w.tick}: player ${p.id} carried ${p.carried} invalid`);
+        }
+        if (p.bankTicks < 0 || p.bankTicks > maxChannelTicks) {
+          violations.push(`tick ${w.tick}: player ${p.id} bankTicks ${p.bankTicks} out of range`);
+        }
+        if (!p.alive && p.carried > 0) {
+          violations.push(`tick ${w.tick}: dead player ${p.id} still carrying ${p.carried}`);
+        }
+      }
+      // The 75% rule as a standing invariant: the reserve NEVER leaves the keep
+      // (holds until M3 introduces keep destruction, which spills it by design).
+      for (const s of w.squads) {
+        const reserve = Math.ceil(s.lifetimeGold * cfg.banking.reserveFraction);
+        if (s.keepGold < reserve) {
+          violations.push(
+            `tick ${w.tick}: squad ${s.id} keep ${s.keepGold} below reserve ${reserve}`,
+          );
+        }
+        if (s.bankedGold < 0) violations.push(`tick ${w.tick}: squad ${s.id} negative bank`);
+      }
+      for (const sack of w.sacks.values()) {
+        if (sack.gold <= 0) violations.push(`tick ${w.tick}: sack ${sack.id} gold ${sack.gold}`);
+        if (!Number.isFinite(sack.x + sack.y)) {
+          violations.push(`tick ${w.tick}: sack ${sack.id} non-finite position`);
         }
       }
       for (const proj of w.projectiles.values()) {

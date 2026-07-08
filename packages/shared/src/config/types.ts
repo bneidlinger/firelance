@@ -122,6 +122,23 @@ export interface GameConfig {
     tierThresholds: number[];
   };
 
+  banking: {
+    /** Gold loaded keep→carried per second while holding interact at own keep. */
+    withdrawPerSec: number;
+    /** Fraction of lifetime earnings locked in the keep as raid bait (the 75% rule). */
+    reserveFraction: number;
+    /** Interact range around keep and town tile centers. */
+    interactRadius: number;
+    /** Deposit channel length — stand still at a town holding interact. */
+    bankChannelSec: number;
+    /** Walk-speed penalty per 100 carried gold (0.03 => −3%/100g). Dash unaffected. */
+    slowPer100Gold: number;
+    /** Carrier speed never drops below this fraction. */
+    minSpeedFactor: number;
+    /** Walking this close to a loot sack picks it up. */
+    sackPickupRadius: number;
+  };
+
   vision: {
     /** Standard vision radius (units). */
     radius: number;

@@ -6,8 +6,10 @@ import type { SimEvent } from './events';
 import type { InputCmd, PlayerId, World } from './world';
 import { PHASE_ENDED } from './world';
 import { pushoutPairs, stepMovement } from './systems/movement';
+import { carrySpeedFactor } from './systems/economy';
 import { stepAttacks } from './systems/attacks';
 import { stepProjectiles } from './systems/projectiles';
+import { stepBanking } from './systems/banking';
 import { stepLifecycle } from './systems/lifecycle';
 import { stepPhase } from './systems/phase';
 
@@ -17,8 +19,10 @@ import { stepPhase } from './systems/phase';
  * steps the whole world.
  *
  * System order:
- *   applyInputs → movement → pushout → attacks → projectiles → lifecycle
- *   (regen/bounty/respawn) → phase (countdown/live/ended)
+ *   applyInputs → movement → pushout → attacks → projectiles → banking
+ *   (withdraw/deposit/pickup; after combat so same-tick damage breaks the
+ *   channel) → lifecycle (regen/bounty/respawn; after banking so a player who
+ *   died this tick never banks) → phase (countdown/live/ended)
  * Ended worlds freeze everything except the phase clock — the end screen is a
  * still frame until the server rebuilds the match.
  */
@@ -46,7 +50,7 @@ export function stepWorld(
         params = kitMoveParams(cfg, p.cls);
         paramsByClass.set(p.cls, params);
       }
-      stepMovement(p, p.input, params, map, dt);
+      stepMovement(p, p.input, params, map, dt, carrySpeedFactor(cfg, p.carried));
       alive.push(p);
     }
 
@@ -55,6 +59,7 @@ export function stepWorld(
 
     stepAttacks(world, cfg, map, events);
     stepProjectiles(world, cfg, map, events);
+    stepBanking(world, cfg, map, events);
     stepLifecycle(world, cfg, events);
   }
 

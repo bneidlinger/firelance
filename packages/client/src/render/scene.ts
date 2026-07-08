@@ -23,6 +23,7 @@ export class Scene {
   readonly app: Application;
   readonly world = new Container();
   readonly mapLayer = new Container();
+  readonly sackLayer = new Container();
   readonly entityLayer = new Container();
   readonly projectileLayer = new Container();
   readonly fxLayer = new Container();
@@ -30,8 +31,10 @@ export class Scene {
 
   private constructor(app: Application) {
     this.app = app;
-    // Draw order: terrain, bodies, arrows over bodies, sparks, fog veils all.
+    // Draw order: terrain, ground loot, bodies over loot, arrows over bodies,
+    // sparks, fog veils all.
     this.world.addChild(this.mapLayer);
+    this.world.addChild(this.sackLayer);
     this.world.addChild(this.entityLayer);
     this.world.addChild(this.projectileLayer);
     this.world.addChild(this.fxLayer);
@@ -46,7 +49,7 @@ export class Scene {
     return new Scene(app);
   }
 
-  buildMap(map: MapData): void {
+  buildMap(map: MapData, interactRadius = 2.5): void {
     this.mapLayer.removeChildren();
     const g = new Graphics();
     // Ground with a subtle checker so motion is readable even in open fields.
@@ -84,19 +87,23 @@ export class Scene {
     }
     this.mapLayer.addChild(g);
 
-    // POI markers
+    // POI markers. Rings on keeps/towns trace the ACTUAL interact radius —
+    // "stand inside the gold circle" is the whole banking tutorial.
     const poi = new Graphics();
     for (const k of map.keeps) {
       poi
-        .circle(k.x * TILE, k.y * TILE, TILE * 1.4)
-        .stroke({ width: 2, color: COLORS.keep, alpha: 0.9 });
+        .circle(k.x * TILE, k.y * TILE, interactRadius * TILE)
+        .stroke({ width: 2, color: COLORS.keep, alpha: 0.55 });
       poi.circle(k.x * TILE, k.y * TILE, 3).fill(COLORS.keep);
     }
     for (const t of map.towns) {
-      poi.rect(t.x * TILE - 6, t.y * TILE - 6, 12, 12).fill(COLORS.town);
+      // A bank: gold square vault + coin dot, inside its interact circle.
+      poi.rect(t.x * TILE - 7, t.y * TILE - 7, 14, 14).fill(COLORS.town);
+      poi.rect(t.x * TILE - 7, t.y * TILE - 7, 14, 14).stroke({ width: 2, color: 0x7a6544 });
+      poi.circle(t.x * TILE, t.y * TILE, 3).fill(0x7a6544);
       poi
-        .circle(t.x * TILE, t.y * TILE, TILE * 2)
-        .stroke({ width: 2, color: COLORS.town, alpha: 0.5 });
+        .circle(t.x * TILE, t.y * TILE, interactRadius * TILE)
+        .stroke({ width: 2.5, color: COLORS.town, alpha: 0.75 });
     }
     map.spawns.forEach((s, squad) => {
       poi

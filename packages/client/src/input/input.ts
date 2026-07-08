@@ -1,6 +1,6 @@
 import type { ClassId } from '@shared/config';
 import type { InputCmd } from '@shared/sim/world';
-import { BTN_BLOCK, BTN_DASH, BTN_FIRE } from '@shared/sim/world';
+import { BTN_BLOCK, BTN_DASH, BTN_FIRE, BTN_INTERACT } from '@shared/sim/world';
 
 // Keyboard + mouse state, sampled into InputCmds at the sim rate (30Hz) by the
 // main loop. Aim is a unit vector from the player's predicted position to the
@@ -63,6 +63,8 @@ export class InputState {
     if (this.mouseButtons.has(0)) b |= BTN_FIRE;
     if (this.mouseButtons.has(2)) b |= BTN_BLOCK;
     if (this.isDown('Space') || this.isDown('ShiftLeft')) b |= BTN_DASH;
+    // Interact is a pure HOLD (withdraw trickle / deposit channel) — no latch.
+    if (this.isDown('KeyE')) b |= BTN_INTERACT;
     return { mx, my, b };
   }
 

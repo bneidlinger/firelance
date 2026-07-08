@@ -5,12 +5,14 @@ import { createRng, rngFloat, rngInt } from '@shared/math/rng';
 import { isVisibleToSquad } from '@shared/sim/vision';
 import { createWorld, spawnPlayer, PHASE_LIVE } from '@shared/sim/world';
 import { isWalkBlocked } from '@shared/map/types';
-import { buildSquadEnts } from '../src/snapshot';
+import { buildSquadEnts, buildSquadSacks } from '../src/snapshot';
 
 // THE anti-wallhack property test: across 1,000 randomized world states, a
 // squad snapshot must NEVER serialize an enemy the squad cannot see, must
-// ALWAYS contain every living ally, and must never contain the dead. The
-// snapshot builder and the visibility function can only drift apart by
+// ALWAYS contain every living ally, and must never contain the dead. Same
+// rules for ground sacks (M2), plus the info-leak rule: an enemy entity must
+// never carry the `g` (carried gold) field — that number is squad-private.
+// The snapshot builder and the visibility function can only drift apart by
 // failing this test loudly.
 
 const cfg = getConfigPreset('smoke');
@@ -26,7 +28,7 @@ describe('fog property test (1,000 seeded states)', () => {
       const world = createWorld(iter, cfg, map);
       world.phase = PHASE_LIVE;
 
-      // 12 players, random walkable spots, ~15% dead.
+      // 12 players, random walkable spots, ~15% dead, ~30% carrying gold.
       for (let i = 0; i < 12; i++) {
         const squad = i % 4;
         let x = 0;
@@ -38,11 +40,35 @@ describe('fog property test (1,000 seeded states)', () => {
         }
         const p = spawnPlayer(world, cfg, squad, `p${i}`, true, 'ranger', x + 0.5, y + 0.5);
         if (rngFloat(rng) < 0.15) p.alive = false;
+        if (rngFloat(rng) < 0.3) p.carried = rngInt(rng, 1, 900);
+      }
+
+      // A few ground sacks scattered on walkable tiles.
+      const sackCount = rngInt(rng, 0, 4);
+      for (let i = 0; i < sackCount; i++) {
+        let x = 0;
+        let y = 0;
+        for (;;) {
+          x = rngInt(rng, 1, map.width - 2);
+          y = rngInt(rng, 1, map.height - 2);
+          if (!isWalkBlocked(map, x, y)) break;
+        }
+        const id = world.nextId++;
+        world.sacks.set(id, { id, x: x + 0.5, y: y + 0.5, gold: rngInt(rng, 1, 500), bornTick: 0 });
       }
 
       for (let squad = 0; squad < 4; squad++) {
         const ents = buildSquadEnts(world, map, cfg, squad);
         const sent = new Set(ents.map((e) => e.i));
+
+        for (const e of ents) {
+          const p = world.players.get(e.i)!;
+          if (p.squad !== squad) {
+            expect(e.g, `enemy ${e.i} leaked carried gold to squad ${squad}`).toBeUndefined();
+          } else if (p.carried > 0) {
+            expect(e.g, `ally ${e.i} carried amount missing`).toBe(p.carried);
+          }
+        }
 
         for (const p of world.players.values()) {
           const included = sent.has(p.id);
@@ -63,6 +89,16 @@ describe('fog property test (1,000 seeded states)', () => {
               `visible enemy ${p.id} NOT serialized for squad ${squad} (ghost!)`,
             ).toBe(false);
           }
+        }
+
+        // Sacks obey the same fog: serialized ⇔ visible.
+        const sackSent = new Set(buildSquadSacks(world, map, cfg, squad).map((s) => s.i));
+        for (const s of world.sacks.values()) {
+          const vis = isVisibleToSquad(world, map, cfg, squad, s.x, s.y);
+          expect(
+            sackSent.has(s.id),
+            `sack ${s.id} ${vis ? 'hidden from' : 'leaked to'} squad ${squad}`,
+          ).toBe(vis);
         }
       }
     }

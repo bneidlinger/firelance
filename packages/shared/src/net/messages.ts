@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ---------------------------------------------------------------- client → server
 
@@ -75,6 +75,8 @@ export const ST_BLOCKING = 1;
 export const ST_WINDUP = 2;
 export const ST_ACTIVE = 4;
 export const ST_DASHING = 8;
+export const ST_CARRYING = 16;
+export const ST_BANKING = 32;
 
 /** Remote entity as serialized into a squad snapshot (coords quantized to 0.01). */
 export interface EntitySnap {
@@ -87,8 +89,20 @@ export interface EntitySnap {
   /** Whole-number hp for bars; max derives from cls client-side. */
   hp: number;
   cls: ClassId;
-  /** ST_* bitmask: blocking / melee windup / melee active / dashing. */
+  /** ST_* bitmask: blocking / windup / active / dashing / carrying / banking. */
   st: number;
+  /** Carried gold — present for SQUADMATES only. Enemies get the ST_CARRYING
+   *  flag (you can see the sack on their back) but never the amount. */
+  g?: number;
+}
+
+/** A visible ground loot sack (dropped carried gold). */
+export interface SackSnap {
+  i: number;
+  x: number;
+  y: number;
+  /** Gold inside — public once you can see the sack (size it up, then fight over it). */
+  g: number;
 }
 
 /**
@@ -115,6 +129,11 @@ export interface YouSnap {
   atkCd: number;
   cls: ClassId;
   bounty: number;
+  /** Carried gold — drives the HUD weight readout AND client-side carry-slow
+   *  prediction (the kernel needs the same factor the server applies). */
+  carried: number;
+  /** Deposit channel progress in ticks (0 = idle); pairs with cfg.banking.bankChannelSec. */
+  bankTicks: number;
 }
 
 export interface SnapMsg {
@@ -125,6 +144,8 @@ export interface SnapMsg {
   you: YouSnap;
   /** Everything this squad can currently see (full visible set, no deltas). */
   ents: EntitySnap[];
+  /** Ground sacks this squad can currently see (same fog rules as entities). */
+  sacks: SackSnap[];
 }
 
 /** Sim events plus match-level joins/leaves; fog policy applied server-side. */
@@ -139,14 +160,20 @@ export interface EvMsg {
   events: NetEvent[];
 }
 
-/** Public standings — bounty is public information by design. ~2Hz. */
+/**
+ * Standings — bounty and BANKED gold are public information by design (banked
+ * is the score). Keep-vault contents are squad-private from M2 on (the design
+ * doc lists "vault values" as hidden info): `g` (keep gold) and `wd`
+ * (withdrawable now, after the reserve rule) are present ONLY on the
+ * recipient's own squad entry. ~2Hz.
+ */
 export interface ScoreMsg {
   t: 'score';
   tick: number;
   phase: number;
   phaseEndsTick: number;
   players: Array<{ id: number; b: number; k: number; d: number; a: number }>;
-  squads: Array<{ id: number; g: number }>;
+  squads: Array<{ id: number; bk: number; g?: number; wd?: number }>;
 }
 
 export interface PongMsg {

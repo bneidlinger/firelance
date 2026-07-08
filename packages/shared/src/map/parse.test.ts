@@ -53,12 +53,16 @@ describe('map parser', () => {
 });
 
 describe('scrim_small', () => {
-  it('is 96x96 with 4 spawns, 4 keep sites, 1 town', () => {
+  it('is 96x96 with 4 spawns, 4 keep sites, 2 towns (one per river side)', () => {
     expect(scrimSmall.width).toBe(96);
     expect(scrimSmall.height).toBe(96);
     expect(scrimSmall.spawns).toHaveLength(4);
     expect(scrimSmall.keeps).toHaveLength(4);
-    expect(scrimSmall.towns).toHaveLength(1);
+    expect(scrimSmall.towns).toHaveLength(2);
+    // Bank runs need a route CHOICE: one town north of the river, one south.
+    const ys = scrimSmall.towns.map((t) => t.y).sort((a, b) => a - b);
+    expect(ys[0]).toBeLessThan(46);
+    expect(ys[1]).toBeGreaterThan(49);
   });
 
   it('river blocks walking but bridges are walkable', () => {

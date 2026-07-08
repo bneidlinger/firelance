@@ -7,12 +7,16 @@ import { BTN_BLOCK, BTN_DASH } from '../world';
 
 // THE prediction kernel. This exact function runs on the server (authoritative)
 // and on the client (replaying pending inputs during reconciliation). It must
-// stay pure over (state, input, params, map, dt) and use only IEEE-deterministic
-// math (+ - * / sqrt). No trig, no rng, no wall-clock.
+// stay pure over (state, input, params, map, dt, speedFactor) and use only
+// IEEE-deterministic math (+ - * / sqrt). No trig, no rng, no wall-clock.
 //
 // M1: dash (edge-triggered displacement, no i-frames) and shield-block move
 // slow live INSIDE the kernel — both change position, so both must be
 // predicted or every dash would rubber-band under latency.
+// M2: carried gold slows walking, so the carry factor enters the kernel the
+// same way — callers derive it via carrySpeedFactor(cfg, carried) from their
+// own authoritative view (server: player state; client: acked `you`). Walk
+// speed only; dash displacement stays full-strength on purpose.
 
 export interface MoveState {
   x: number;
@@ -70,6 +74,7 @@ export function stepMovement(
   params: MoveParams,
   map: MapData,
   dt: number,
+  speedFactor = 1,
 ): void {
   const r = params.radius;
 
@@ -114,9 +119,10 @@ export function stepMovement(
       mx /= l;
       my /= l;
     }
-    const speed = isBlocking(input.b, params.hasShield, s.dashTicks)
-      ? params.moveSpeed * params.blockMoveFactor
-      : params.moveSpeed;
+    const speed =
+      (isBlocking(input.b, params.hasShield, s.dashTicks)
+        ? params.moveSpeed * params.blockMoveFactor
+        : params.moveSpeed) * speedFactor;
     s.vx = mx * speed;
     s.vy = my * speed;
   }

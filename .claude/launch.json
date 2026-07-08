@@ -21,6 +21,21 @@
         "7"
       ],
       "port": 8787
+    },
+    {
+      "name": "server-quiet",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "packages/server/src/index.ts",
+        "--config",
+        "prototype",
+        "--bots",
+        "5",
+        "--seed",
+        "11"
+      ],
+      "port": 8787
     }
   ]
 }

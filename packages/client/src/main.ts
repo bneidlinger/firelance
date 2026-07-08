@@ -2,7 +2,14 @@ import { configHash, getConfigPreset, getKit, secToTicks, type GameConfig } from
 import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
 import type { NetEvent, RosterEntry, ServerMsg, YouSnap } from '@shared/net/messages';
-import { ST_ACTIVE, ST_BLOCKING, ST_DASHING, ST_WINDUP } from '@shared/net/messages';
+import {
+  ST_ACTIVE,
+  ST_BANKING,
+  ST_BLOCKING,
+  ST_CARRYING,
+  ST_DASHING,
+  ST_WINDUP,
+} from '@shared/net/messages';
 import {
   ATK_ACTIVE,
   ATK_WINDUP,
@@ -11,6 +18,7 @@ import {
   PHASE_COUNTDOWN,
   PHASE_ENDED,
   PHASE_LIVE,
+  assignKeeps,
 } from '@shared/sim/world';
 import { sfx, unlockAudio } from './audio/sfx';
 import { InputState } from './input/input';
@@ -22,6 +30,7 @@ import { FogLayer } from './render/fog';
 import { FxLayer } from './render/fx';
 import { Hud } from './render/hud';
 import { ProjectileLayer } from './render/projectiles';
+import { SackLayer } from './render/sacks';
 import { Scene, SQUAD_COLORS } from './render/scene';
 import { Overlay, showBanner } from './debug/overlay';
 
@@ -32,7 +41,8 @@ import { Overlay, showBanner } from './debug/overlay';
 //   ?fakelag=120&jitter=30 added RTT ms + jitter — judge ALL feel with this on
 //   ?nopredict             disable own-movement prediction (A/B + desync triage)
 // Controls: WASD move · mouse aim · LMB fire · RMB block (fighter) ·
-//           Space/Shift dash · 1/2 class at next respawn · F3 net overlay
+//           Space/Shift dash · E interact (load gold at keep / bank at town) ·
+//           1/2 class at next respawn · F3 net overlay
 
 const params = new URLSearchParams(location.search);
 const name = params.get('name') ?? `guest${Math.floor(Math.random() * 1000)}`;
@@ -55,9 +65,14 @@ interface GameState {
   prediction: Prediction;
   entities: EntityLayer;
   projectiles: ProjectileLayer;
+  sacks: SackLayer;
   fx: FxLayer;
   fog: FogLayer;
   hud: Hud;
+  /** Own squad's keep site (derived from the map, same as the server). */
+  ownKeep: { x: number; y: number };
+  /** Own squad's vault detail from the last score (squad-private fields). */
+  ownGold: { bk: number; g: number; wd: number };
   /** Local fire-gating mirror (muzzle prediction). */
   predictedAtkCd: number;
   localSwingStartMs: number;
@@ -135,6 +150,11 @@ function handleServer(msg: ServerMsg): void {
       if (game) {
         game.phase = msg.phase;
         game.phaseEndsTick = msg.phaseEndsTick;
+        for (const s of msg.squads) {
+          if (s.id === game.ownSquad && s.g !== undefined) {
+            game.ownGold = { bk: s.bk, g: s.g, wd: s.wd ?? 0 };
+          }
+        }
         game.hud.score(msg, roster);
       }
       break;
@@ -206,6 +226,7 @@ function handleEvent(ev: NetEvent): void {
         victim?.squad ?? 0,
         ev.gold,
         ev.victimBounty,
+        ev.droppedGold,
       );
       const pos = game.lastHitPos.get(ev.victim);
       if (pos) game.fx.death(pos.x, pos.y, SQUAD_COLORS[victim?.squad ?? 0] ?? 0xffffff);
@@ -224,6 +245,23 @@ function handleEvent(ev: NetEvent): void {
         game.lastKillerName = null;
         sfx('respawn');
       }
+      break;
+    case 'banked': {
+      const by = roster.get(ev.by);
+      game.hud.bankedLine(by?.name ?? `#${ev.by}`, ev.squad, ev.amount);
+      game.fx.respawnRing(ev.x, ev.y, 0xf2d68c);
+      if (ev.squad === game.ownSquad) {
+        sfx('banked'); // your gold is SAFE — full-volume payoff chime
+        game.hud.toast(`${ev.amount}g banked — it's safe`);
+      } else {
+        sfx('banked', { x: ev.x, y: ev.y }, listener);
+      }
+      break;
+    }
+    case 'sackTaken':
+      game.fx.respawnRing(ev.x, ev.y, 0xf2d68c);
+      sfx('pickup', { x: ev.x, y: ev.y }, listener);
+      if (ev.by === game.ownId) game.hud.toast(`Picked up ${ev.gold}g — bank it at a town`);
       break;
     case 'phase':
       game.phase = ev.phase;
@@ -257,10 +295,11 @@ async function setupScene(
     input.attach(document.body);
   }
   // Fresh world (first join or match restart): rebuild all mutable layers.
-  scene.buildMap(map);
+  scene.buildMap(map, cfg.banking.interactRadius);
   interp.clear();
   game?.entities.clear();
   game?.projectiles.clear();
+  game?.sacks.clear();
   game?.fx.clear();
   game?.fog.destroy();
   const hud = game?.hud ?? new Hud(cfg);
@@ -277,9 +316,12 @@ async function setupScene(
     prediction: new Prediction(cfg, map),
     entities: new EntityLayer(scene.entityLayer, cfg),
     projectiles: new ProjectileLayer(scene.projectileLayer, welcome.tickRate),
+    sacks: new SackLayer(scene.sackLayer),
     fx: new FxLayer(scene.fxLayer),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
+    ownKeep: assignKeeps(map, cfg.match.squads)[welcome.squadId] ?? { x: 0, y: 0 },
+    ownGold: { bk: 0, g: 0, wd: 0 },
     predictedAtkCd: 0,
     localSwingStartMs: -1e9,
     lastAim: { ax: 1, ay: 0 },
@@ -291,7 +333,6 @@ async function setupScene(
 
 let loopStarted = false;
 let seq = 0;
-let inputAccum = 0;
 let lastFrame = 0;
 let fps = 0;
 let lastOverlay = 0;
@@ -302,6 +343,17 @@ function startLoop(): void {
   loopStarted = true;
   lastFrame = performance.now();
   lastBytes.at = lastFrame;
+  // Input sampling runs on its OWN clock, not the render loop: rAF throttles
+  // hard in occluded/background windows (down to a few Hz), and inputs
+  // freezing because the window lost focus mid-bank-run would be a disaster.
+  // (Browsers still clamp background timers to ~1Hz — acceptable degradation;
+  // an occluded 4fps window keeps full 30Hz input this way.)
+  setInterval(
+    () => {
+      if (game && scene && !disconnected) sampleAndSendInput(performance.now());
+    },
+    1000 / (game?.tickRate ?? 30),
+  );
   requestAnimationFrame(frame);
 }
 
@@ -311,14 +363,6 @@ function frame(now: number): void {
   const dtMs = Math.min(100, now - lastFrame);
   lastFrame = now;
   fps = fps * 0.95 + (1000 / Math.max(1, dtMs)) * 0.05;
-
-  // ---- input sampling at the sim rate
-  const stepMs = 1000 / game.tickRate;
-  inputAccum += dtMs;
-  while (inputAccum >= stepMs) {
-    inputAccum -= stepMs;
-    sampleAndSendInput(now);
-  }
 
   // ---- class switch requests (any time; applies at next respawn)
   const wantCls = input.takePendingClass();
@@ -359,6 +403,10 @@ function frame(now: number): void {
       if (age < windupMs) st |= ST_WINDUP;
       else if (age < windupMs + activeMs) st |= ST_ACTIVE;
     }
+    // Carry/channel states come straight from the authoritative `you` (they
+    // aren't predicted — the 100ms lag on a badge is imperceptible).
+    if (latestYou && latestYou.carried > 0) st |= ST_CARRYING;
+    if (latestYou && latestYou.bankTicks > 0) st |= ST_BANKING;
     ownVisual = {
       x: ownPos.x,
       y: ownPos.y,
@@ -367,11 +415,16 @@ function frame(now: number): void {
       hp: latestYouHp,
       cls,
       st,
+      g: latestYou?.carried,
     };
   }
 
   game.entities.sync(visible, roster, game.ownId, ownVisual);
+  game.sacks.sync(interp.sacks, now);
   if (ownPos) scene.follow(ownPos.x, ownPos.y);
+
+  // ---- contextual banking prompt (the "how do I bank" tutorial, in place)
+  updatePrompt(ownPos);
 
   // ---- projectiles + fx on the delayed timeline
   game.projectiles.frame(renderTick, now);
@@ -416,6 +469,48 @@ function frame(now: number): void {
 }
 
 let latestYouHp = 0;
+
+/**
+ * The banking rules, taught where they apply: a prompt near your keep for
+ * loading (with the 75/25 reserve explained the moment it bites), and one
+ * near towns for the stand-still deposit channel.
+ */
+function updatePrompt(ownPos: { x: number; y: number } | null): void {
+  if (!game || !ownPos || game.phase !== PHASE_LIVE || !latestYou?.alive) {
+    game?.hud.prompt(null);
+    return;
+  }
+  const R = game.cfg.banking.interactRadius;
+  const near = (p: { x: number; y: number }): boolean =>
+    Math.hypot(p.x - ownPos.x, p.y - ownPos.y) <= R + 0.6;
+
+  let html: string | null = null;
+  if (near(game.ownKeep)) {
+    if (game.ownGold.wd > 0) {
+      html =
+        `<span class="key">E</span> load gold — ${game.ownGold.wd}g withdrawable` +
+        `<div class="sub">carriers move slower · dying drops the load</div>`;
+    } else if (game.ownGold.g > 0) {
+      html =
+        `Keep reserve locked` +
+        `<div class="sub">25% of lifetime earnings stays home as raid bait — earn more to bank more</div>`;
+    }
+  } else {
+    for (const t of game.map.towns) {
+      if (!near(t)) continue;
+      if (latestYou.carried > 0) {
+        html =
+          latestYou.bankTicks > 0
+            ? `Banking ${latestYou.carried}g…` +
+              `<div class="sub">stand still — damage or movement breaks the channel</div>`
+            : `<span class="key">E</span> bank ${latestYou.carried}g` +
+              `<div class="sub">stand still and hold — ${game.cfg.banking.bankChannelSec}s channel</div>`;
+      }
+      break;
+    }
+  }
+  game.hud.prompt(html);
+}
 
 function sampleAndSendInput(now: number): void {
   if (!game || !scene) return;
@@ -540,6 +635,17 @@ window.__fl = {
           bounty: latestYou.bounty,
           cls: latestYou.cls,
           atkCd: latestYou.atkCd,
+          carried: latestYou.carried,
+          bankTicks: latestYou.bankTicks,
+        }
+      : null,
+    banking: game
+      ? {
+          sacksVisible: interp.sacks.length,
+          sacks: interp.sacks.map((s) => ({ x: s.x, y: s.y, g: s.g })),
+          ownKeep: game.ownKeep,
+          towns: game.map.towns,
+          ownGold: { ...game.ownGold },
         }
       : null,
     disconnected,

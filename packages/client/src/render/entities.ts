@@ -2,7 +2,14 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { ClassId, GameConfig } from '@shared/config';
 import { getKit } from '@shared/config';
 import type { RosterEntry } from '@shared/net/messages';
-import { ST_ACTIVE, ST_BLOCKING, ST_DASHING, ST_WINDUP } from '@shared/net/messages';
+import {
+  ST_ACTIVE,
+  ST_BANKING,
+  ST_BLOCKING,
+  ST_CARRYING,
+  ST_DASHING,
+  ST_WINDUP,
+} from '@shared/net/messages';
 import type { RichEnt } from '../net/interpolation';
 import { SQUAD_COLORS, TILE } from './scene';
 
@@ -29,6 +36,7 @@ export interface OwnVisual {
   hp: number;
   cls: ClassId;
   st: number;
+  g?: number;
 }
 
 const HP_W = 26;
@@ -149,6 +157,24 @@ export class EntityLayer {
         .lineTo(0, 0)
         .stroke({ width: r, color: 0xffffff, alpha: 0.25 });
     }
+    if (e.st & ST_CARRYING) {
+      // The sack on their back: a gold diamond trailing opposite the facing.
+      // Everyone can SEE a carrier — only the amount is squad-private.
+      const bx = -e.ax * (r + 3);
+      const by = -e.ay * (r + 3);
+      g.moveTo(bx, by - 4)
+        .lineTo(bx + 4, by)
+        .lineTo(bx, by + 4)
+        .lineTo(bx - 4, by)
+        .closePath()
+        .fill(0xf2d68c)
+        .stroke({ width: 1, color: 0x7a6544 });
+    }
+    if (e.st & ST_BANKING) {
+      // Deposit channel in progress — the "interrupt me!" beacon.
+      const pulse = 0.55 + 0.35 * Math.sin(performance.now() / 120);
+      g.circle(0, 0, r + 6).stroke({ width: 2.5, color: 0xf2d68c, alpha: pulse });
+    }
   }
 
   private drawHp(s: Sprite, hp: number, cls: ClassId): void {
@@ -176,6 +202,10 @@ export class EntityLayer {
       this.drawBody(s, e.cls, false, entry?.bot ?? false);
       this.drawState(s, e);
       this.drawHp(s, e.hp, e.cls);
+      // Squadmates broadcast their load next to their name (escort intel).
+      const base = entry?.name ?? `#${id}`;
+      const want = e.g !== undefined && e.g > 0 ? `${base} ◆${e.g}` : base;
+      if (s.label.text !== want) s.label.text = want;
       // Damage flash: brief warm tint on the whole sprite.
       s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
       s.root.position.set(e.x * TILE, e.y * TILE);

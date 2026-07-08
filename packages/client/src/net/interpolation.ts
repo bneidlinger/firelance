@@ -1,5 +1,5 @@
 import type { ClassId } from '@shared/config';
-import type { EntitySnap, SnapMsg } from '@shared/net/messages';
+import type { EntitySnap, SackSnap, SnapMsg } from '@shared/net/messages';
 
 // Remote entities render in the PAST: renderTick = estServerTick - interpDelay
 // (~133ms at 4 ticks), lerped between the two bracketing snapshots. That
@@ -15,6 +15,8 @@ export interface RichEnt {
   hp: number;
   cls: ClassId;
   st: number;
+  /** Carried gold — squadmates only (the server never sends it for enemies). */
+  g?: number;
 }
 
 interface BufferedSnap {
@@ -33,11 +35,14 @@ const MAX_BUFFER = 40;
 
 export class Interpolation {
   private buffer: BufferedSnap[] = [];
+  /** Ground sacks from the newest snapshot — static objects, no lerp needed. */
+  sacks: SackSnap[] = [];
   readonly stats: InterpStats = { bufferedSnaps: 0, newestTick: 0, starvedFrames: 0 };
 
   /** Drop all buffered state (match restart / fresh welcome). */
   clear(): void {
     this.buffer = [];
+    this.sacks = [];
     this.stats.bufferedSnaps = 0;
     this.stats.newestTick = 0;
   }
@@ -50,6 +55,7 @@ export class Interpolation {
     if (last && snap.tick <= last.tick) return;
     this.buffer.push({ tick: snap.tick, ents });
     if (this.buffer.length > MAX_BUFFER) this.buffer.shift();
+    this.sacks = snap.sacks;
     this.stats.bufferedSnaps = this.buffer.length;
     this.stats.newestTick = snap.tick;
   }
@@ -123,5 +129,6 @@ function rich(ea: EntitySnap, eb: EntitySnap, alpha: number): RichEnt {
     hp: eb.hp,
     cls: eb.cls,
     st: eb.st,
+    g: eb.g,
   };
 }

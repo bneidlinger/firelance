@@ -2,14 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { smokeConfig } from '../config';
 import { parseMap } from '../map/parse';
 import { createRng, rngFloat, rngInt } from '../math/rng';
+import { totalGoldInWorld } from './systems/economy';
 import { stepWorld } from './step';
 import type { InputCmd, PlayerId, World } from './world';
-import { BTN_BLOCK, BTN_DASH, BTN_FIRE, createWorld, hashWorld, spawnPlayer } from './world';
+import {
+  BTN_BLOCK,
+  BTN_DASH,
+  BTN_FIRE,
+  BTN_INTERACT,
+  createWorld,
+  hashWorld,
+  spawnPlayer,
+} from './world';
 
 // The determinism contract: same seed + same scripted inputs => bit-identical
 // world state. This single test guards forever against wall-clock reads,
 // Math.random leaks, and iteration-order dependence inside the sim — now
-// including the full M1 combat/economy path (arrows, melee, deaths, gold).
+// including the full M1 combat/economy path (arrows, melee, deaths, gold) and
+// the M2 banking path (withdrawals, carries, sack drops/pickups, deposits).
 
 // Tight arena: keeps only a few units apart so scripted fights actually land.
 const arena = parseMap(
@@ -26,7 +36,11 @@ const arena = parseMap(
 `,
 );
 
-function runScriptedMatch(ticks: number): { hashes: string[]; world: World } {
+function runScriptedMatch(ticks: number): {
+  hashes: string[];
+  world: World;
+  carriedSeen: boolean;
+} {
   const world = createWorld(0xf1a5e, smokeConfig, arena);
   const ids: PlayerId[] = [];
   for (let squad = 0; squad < 4; squad++) {
@@ -41,6 +55,7 @@ function runScriptedMatch(ticks: number): { hashes: string[]; world: World } {
   const script = createRng(0xdead);
   const current = new Map<PlayerId, InputCmd>();
   const hashes: string[] = [];
+  let carriedSeen = false;
 
   for (let t = 0; t < ticks; t++) {
     for (const id of ids) {
@@ -68,14 +83,26 @@ function runScriptedMatch(ticks: number): { hashes: string[]; world: World } {
         if (rngFloat(script) < 0.5) b |= BTN_FIRE;
         if (rngFloat(script) < 0.1) b |= BTN_DASH;
         if (rngFloat(script) < 0.15) b |= BTN_BLOCK;
+        // Mash interact too: near keeps this withdraws (spawns are AT keeps),
+        // near the central towns it channels — the full banking path under
+        // the determinism hash.
+        if (rngFloat(script) < 0.3) b |= BTN_INTERACT;
         current.set(id, { mx, my, ax, ay, b });
       }
     }
     stepWorld(world, current, smokeConfig, arena);
+    if (!carriedSeen) {
+      for (const p of world.players.values()) {
+        if (p.carried > 0) {
+          carriedSeen = true;
+          break;
+        }
+      }
+    }
     if (world.tick % 100 === 0) hashes.push(hashWorld(world));
   }
   hashes.push(hashWorld(world));
-  return { hashes, world };
+  return { hashes, world, carriedSeen };
 }
 
 describe('simulation determinism', () => {
@@ -108,10 +135,13 @@ describe('simulation determinism', () => {
     }
   });
 
-  it('gold conservation holds at the end of a combat run', () => {
+  it('gold conservation holds across all four pools at the end of a combat run', () => {
     const { world } = runScriptedMatch(1000);
-    let pooled = 0;
-    for (const s of world.squads) pooled += s.keepGold;
-    expect(pooled).toBe(world.goldMinted);
+    expect(totalGoldInWorld(world)).toBe(world.goldMinted);
+  });
+
+  it('the scripted run exercises banking (gold actually got carried)', () => {
+    const { carriedSeen } = runScriptedMatch(1000);
+    expect(carriedSeen).toBe(true);
   });
 });

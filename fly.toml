@@ -1,0 +1,22 @@
+# fly.io config for Firelance. One shared-cpu machine is plenty for a
+# 12-player match (headless p99 tick: <1ms; ~13 KB/s per client).
+#
+#   fly launch --no-deploy   # first time: claims the app name, keeps this file
+#   fly deploy               # builds the Dockerfile remotely and ships it
+#
+# Machines auto-stop when nobody is connected and auto-start on the next
+# visit (a fresh match spins up — fine for drop-in friend sessions).
+
+app = "firelance"
+primary_region = "ord" # pick the region closest to your playgroup
+
+[http_service]
+  internal_port = 8787
+  force_https = true # browser gets https + wss on the same origin
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
