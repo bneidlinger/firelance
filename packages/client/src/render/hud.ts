@@ -74,6 +74,11 @@ export class Hud {
     bombs.textContent =
       you.bombCd > 0 ? `🔥${pips} ${(you.bombCd / this.cfg.tick.simHz).toFixed(1)}s` : `🔥${pips}`;
 
+    // Build supply (⛏): green once a wall is affordable — the "you can build" tell.
+    const supply = el('supply');
+    supply.textContent = `⛏ ${Math.floor(you.supply)}`;
+    supply.style.color = you.supply >= this.cfg.build.wall.cost ? '#8fae6a' : '#b9ad98';
+
     // Carried load + how much it's slowing you (the risk you're holding).
     const carry = el('carry');
     if (you.carried > 0) {

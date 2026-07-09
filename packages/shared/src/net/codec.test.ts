@@ -55,12 +55,17 @@ const SERVER_SAMPLES: ServerMsg[] = [
       rebuildTicks: 0,
       bombs: 2,
       bombCd: 12,
+      supply: 160,
     },
     ents: [
       { i: 4, x: 10.25, y: 20.5, ax: 0.6, ay: 0.8, hp: 90, cls: 'fighter', st: 1 },
       { i: 5, x: 11, y: 20, ax: 1, ay: 0, hp: 90, cls: 'ranger', st: 16, g: 250 },
     ],
     sacks: [{ i: 12, x: 40.5, y: 61.25, g: 480 }],
+    structures: [
+      { i: 30, k: 0, s: 2, tx: 42, ty: 60, hp: 200, mx: 200 },
+      { i: 31, k: 0, s: 2, tx: 43, ty: 60, hp: 85, mx: 200 },
+    ],
   },
   {
     t: 'ev',

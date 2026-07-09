@@ -52,6 +52,9 @@ export class Prediction {
   /** Carried gold from the last acked snapshot — the carry-slow the server is
    *  applying to us. Lags the trickle by one RTT; smoothing absorbs the sliver. */
   private carried = 0;
+  /** Structure occupancy from the latest snapshot — walls the client predicts
+   *  against (own walls are always in the snapshot, so the common case is exact). */
+  private occ: ReadonlySet<number> | null = null;
   readonly stats: PredictionStats = {
     reconciles: 0,
     lastError: 0,
@@ -73,6 +76,11 @@ export class Prediction {
     return this.aliveState;
   }
 
+  /** Feed the newest snapshot's structure occupancy so wall collision predicts. */
+  setOccupancy(occ: ReadonlySet<number> | null): void {
+    this.occ = occ;
+  }
+
   get classId(): ClassId {
     return this.cls;
   }
@@ -81,7 +89,7 @@ export class Prediction {
   applyLocalInput(seq: number, cmd: InputCmd): void {
     if (!this.initialized || !this.aliveState) return;
     const factor = carrySpeedFactor(this.cfg, this.carried);
-    stepMovement(this.state, cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor);
+    stepMovement(this.state, cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor, this.occ);
     this.pending.push({ seq, cmd });
     if (this.pending.length > 120) this.pending.shift(); // safety bound (4s)
     this.stats.pendingInputs = this.pending.length;
@@ -143,7 +151,15 @@ export class Prediction {
     const preY = this.state.y;
     const factor = carrySpeedFactor(this.cfg, this.carried);
     for (const p of this.pending) {
-      stepMovement(replayed, p.cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor);
+      stepMovement(
+        replayed,
+        p.cmd,
+        this.params,
+        this.map,
+        1 / this.cfg.tick.simHz,
+        factor,
+        this.occ,
+      );
     }
 
     const errX = preX - replayed.x;

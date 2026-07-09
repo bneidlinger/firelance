@@ -36,6 +36,7 @@ http://localhost:5173 and you're the 12th seat.
 | Space / Shift      | dash (displacement dodge, no i-frames; ignores carry slow) |
 | E (hold)           | load gold at your keep / bank at a town / rebuild (still)  |
 | F                  | lob a firebomb toward your aim (anti-structure)            |
+| B                  | build a wall at your aim (2 tiles out; costs build supply) |
 | 1 / 2              | switch to Fighter / Ranger at next respawn                 |
 | F3                 | netcode debug overlay                                      |
 

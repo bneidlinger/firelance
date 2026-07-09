@@ -16,6 +16,7 @@ export function stepProjectiles(
   cfg: GameConfig,
   map: MapData,
   events: SimEvent[],
+  occ: ReadonlySet<number> | null = null,
 ): void {
   if (world.projectiles.size === 0) return;
   const dt = 1 / cfg.tick.simHz;
@@ -26,8 +27,8 @@ export function stepProjectiles(
     const x1 = proj.x + proj.dx * proj.speed * dt;
     const y1 = proj.y + proj.dy * proj.speed * dt;
 
-    // Earliest collision along the segment: walls vs players.
-    const tWall = wallHitParam(map, proj.x, proj.y, x1, y1);
+    // Earliest collision along the segment: walls (terrain + structures) vs players.
+    const tWall = wallHitParam(map, proj.x, proj.y, x1, y1, occ);
     let tBest = tWall ?? 2;
     let hitWall = tWall !== null;
     let victim: Player | null = null;
@@ -92,10 +93,22 @@ export function stepProjectiles(
  * Param t ∈ [0,1] at which the segment enters a vision-blocking tile, or null.
  * Amanatides–Woo traversal, arithmetic only.
  */
-function wallHitParam(map: MapData, x0: number, y0: number, x1: number, y1: number): number | null {
+function vBlocked(map: MapData, occ: ReadonlySet<number> | null, tx: number, ty: number): boolean {
+  if (isVisionBlocked(map, tx, ty)) return true;
+  return occ !== null && occ.has(ty * map.width + tx);
+}
+
+function wallHitParam(
+  map: MapData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  occ: ReadonlySet<number> | null,
+): number | null {
   let tx = Math.floor(x0);
   let ty = Math.floor(y0);
-  if (isVisionBlocked(map, tx, ty)) return 0;
+  if (vBlocked(map, occ, tx, ty)) return 0;
   const txEnd = Math.floor(x1);
   const tyEnd = Math.floor(y1);
   if (tx === txEnd && ty === tyEnd) return null;
@@ -121,7 +134,7 @@ function wallHitParam(map: MapData, x0: number, y0: number, x1: number, y1: numb
       ty += stepY;
     }
     if (t > 1) return null;
-    if (isVisionBlocked(map, tx, ty)) return t;
+    if (vBlocked(map, occ, tx, ty)) return t;
     if (tx === txEnd && ty === tyEnd) return null;
   }
   return null;

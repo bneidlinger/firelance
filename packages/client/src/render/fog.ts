@@ -44,9 +44,15 @@ export class FogLayer {
 
   /**
    * Recompute the mask from the squad's living viewers (own predicted pos +
-   * ally snapshot positions). Throttled to snapshot cadence.
+   * ally snapshot positions). Throttled to snapshot cadence. `occ` is the
+   * structure-occupancy set from the newest snapshot — walls block the mask
+   * exactly like they block the server's filter (M4).
    */
-  update(now: number, viewers: Array<{ x: number; y: number }>): void {
+  update(
+    now: number,
+    viewers: Array<{ x: number; y: number }>,
+    occ: ReadonlySet<number> | null = null,
+  ): void {
     if (now - this.lastUpdate < UPDATE_EVERY_MS) return;
     this.lastUpdate = now;
 
@@ -66,7 +72,7 @@ export class FogLayer {
         for (let tx = x0; tx <= x1; tx++) {
           const idx = ty * map.width + tx;
           if (data[idx * 4 + 3] === 0) continue; // already visible
-          if (canSeePoint(map, cfg, v.x, v.y, tx + 0.5, ty + 0.5)) {
+          if (canSeePoint(map, cfg, v.x, v.y, tx + 0.5, ty + 0.5, occ)) {
             data[idx * 4 + 3] = 0;
           }
         }

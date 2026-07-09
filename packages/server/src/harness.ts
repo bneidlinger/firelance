@@ -251,6 +251,18 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
         if (s.eliminated && s.keepHp > 0) {
           violations.push(`tick ${w.tick}: squad ${s.id} eliminated WITH a living keep`);
         }
+        // Build-supply ledger: a pure sink fed only by a living keep, capped —
+        // supply can never exceed what was minted, go negative, or top the cap.
+        if (s.supply < -1e-9 || s.supply > cfg.build.supplyCap + 1e-6) {
+          violations.push(
+            `tick ${w.tick}: squad ${s.id} supply ${s.supply} out of [0, ${cfg.build.supplyCap}]`,
+          );
+        }
+        if (s.supply > s.supplyMinted + 1e-6) {
+          violations.push(
+            `tick ${w.tick}: squad ${s.id} supply ${s.supply} exceeds minted ${s.supplyMinted}`,
+          );
+        }
       }
       const maxFlight = Math.ceil(cfg.firebomb.flightSec * cfg.tick.simHz) + 1;
       for (const b of w.bombs.values()) {
@@ -272,6 +284,14 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
       }
       if (w.projectiles.size > 200) {
         violations.push(`tick ${w.tick}: ${w.projectiles.size} projectiles alive (leak?)`);
+      }
+      for (const st of w.structures.values()) {
+        if (st.hp <= 0 || st.hp > st.maxHp + 1e-9) {
+          violations.push(`tick ${w.tick}: structure ${st.id} hp ${st.hp} out of (0, ${st.maxHp}]`);
+        }
+        if (st.tx < 0 || st.ty < 0 || st.tx >= map.width || st.ty >= map.height) {
+          violations.push(`tick ${w.tick}: structure ${st.id} tile out of bounds`);
+        }
       }
     }
   });

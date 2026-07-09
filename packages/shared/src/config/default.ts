@@ -100,4 +100,22 @@ export const defaultConfig: GameConfig = {
     radius: 14,
     forestRadius: 4,
   },
+  // Build supply trickles from a LIVING keep (design Q#11): lose the keep, lose
+  // the tap. supplyStart ≈ 3 walls up front; a wall eats 2 firebombs (hp 200 vs
+  // firebomb 150). maxCount + cost + cooldown throttle fortress spam — the M4
+  // gate ("walls change siege texture WITHOUT stalemating") lives in these numbers.
+  build: {
+    supplyStart: 120,
+    supplyPerSec: 2,
+    supplyCap: 300,
+    enemyKeepExclusion: 6,
+    wall: {
+      cost: 40,
+      hp: 200,
+      maxCount: 8,
+      buildReach: 2,
+      buildCooldownSec: 1.5,
+      meleeDamage: 8,
+    },
+  },
 };

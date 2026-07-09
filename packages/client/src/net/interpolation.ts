@@ -1,5 +1,5 @@
 import type { ClassId } from '@shared/config';
-import type { EntitySnap, SackSnap, SnapMsg } from '@shared/net/messages';
+import type { EntitySnap, SackSnap, SnapMsg, StructSnap } from '@shared/net/messages';
 
 // Remote entities render in the PAST: renderTick = estServerTick - interpDelay
 // (~133ms at 4 ticks), lerped between the two bracketing snapshots. That
@@ -37,12 +37,15 @@ export class Interpolation {
   private buffer: BufferedSnap[] = [];
   /** Ground sacks from the newest snapshot — static objects, no lerp needed. */
   sacks: SackSnap[] = [];
+  /** Structures from the newest snapshot — static, no lerp (same as sacks). */
+  structures: StructSnap[] = [];
   readonly stats: InterpStats = { bufferedSnaps: 0, newestTick: 0, starvedFrames: 0 };
 
   /** Drop all buffered state (match restart / fresh welcome). */
   clear(): void {
     this.buffer = [];
     this.sacks = [];
+    this.structures = [];
     this.stats.bufferedSnaps = 0;
     this.stats.newestTick = 0;
   }
@@ -56,6 +59,7 @@ export class Interpolation {
     this.buffer.push({ tick: snap.tick, ents });
     if (this.buffer.length > MAX_BUFFER) this.buffer.shift();
     this.sacks = snap.sacks;
+    this.structures = snap.structures;
     this.stats.bufferedSnaps = this.buffer.length;
     this.stats.newestTick = snap.tick;
   }

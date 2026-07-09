@@ -6,6 +6,7 @@ import { ATK_IDLE, BTN_BOMB, PHASE_LIVE } from '../world';
 import { applyDamage } from './combat';
 import { damageKeep, keepsInRange } from './keep';
 import { isBlocking } from './movement';
+import { damageStructure, structuresInRange } from './structures';
 
 // Firebombs: THE anti-structure tool. A committed lob — the landing circle is
 // locked at throw time and the flight is the defenders' scatter window. Heavy
@@ -77,6 +78,10 @@ export function stepBombs(world: World, cfg: GameConfig, events: SimEvent[]): vo
 
     for (const keep of keepsInRange(world, cfg, bomb.tx, bomb.ty, fb.radius, bomb.squad)) {
       damageKeep(world, cfg, keep, fb.damage, events);
+    }
+    // The anti-structure tool cracks walls too — same blast, enemy structures only.
+    for (const s of structuresInRange(world, bomb.tx, bomb.ty, fb.radius, bomb.squad)) {
+      damageStructure(world, s, fb.damage, events);
     }
 
     // Splash: enemies inside the circle. Blasts are omnidirectional — shields

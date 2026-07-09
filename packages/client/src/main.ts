@@ -34,6 +34,7 @@ import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
 import { Scene, SQUAD_COLORS } from './render/scene';
+import { StructureLayer } from './render/structures';
 import { Overlay, showBanner } from './debug/overlay';
 
 // Firelance client. URL params:
@@ -44,7 +45,7 @@ import { Overlay, showBanner } from './debug/overlay';
 //   ?nopredict             disable own-movement prediction (A/B + desync triage)
 // Controls: WASD move · mouse aim · LMB fire · RMB block (fighter) ·
 //           Space/Shift dash · E interact (load gold at keep / bank at town) ·
-//           1/2 class at next respawn · F3 net overlay
+//           F firebomb · B build a wall · 1/2 class at next respawn · F3 net overlay
 
 const params = new URLSearchParams(location.search);
 const name = params.get('name') ?? `guest${Math.floor(Math.random() * 1000)}`;
@@ -68,11 +69,15 @@ interface GameState {
   entities: EntityLayer;
   projectiles: ProjectileLayer;
   sacks: SackLayer;
+  structures: StructureLayer;
   bombs: BombLayer;
   keeps: KeepLayer;
   fx: FxLayer;
   fog: FogLayer;
   hud: Hud;
+  /** Structure occupancy from the newest snapshot — feeds prediction AND the
+   *  fog mask so walls block both exactly like they do server-side. */
+  structOcc: ReadonlySet<number> | null;
   /** Own squad's keep site (moves on an emergency rebuild). */
   ownKeep: { x: number; y: number };
   /** Live keep intel per squad: position (rebuilds move it) + public hp. */
@@ -168,6 +173,11 @@ function handleServer(msg: ServerMsg): void {
     }
     case 'snap':
       if (game) {
+        // Feed wall occupancy BEFORE reconciling so replayed inputs collide
+        // with the same walls the server saw (own walls are always in-snap).
+        const w = game.map.width;
+        game.structOcc = new Set(msg.structures.map((s) => s.ty * w + s.tx));
+        game.prediction.setOccupancy(game.structOcc);
         game.prediction.onSnapshot(msg.you, msg.ackSeq);
         onYou(msg.you);
       }
@@ -388,6 +398,12 @@ function handleEvent(ev: NetEvent): void {
       sfx('pickup', { x: ev.x, y: ev.y }, listener);
       if (ev.by === game.ownId) game.hud.toast(`Picked up ${ev.gold}g — bank it at a town`);
       break;
+    case 'structBuilt':
+      game.fx.respawnRing(ev.x, ev.y, SQUAD_COLORS[ev.squad] ?? 0x8a8a80);
+      break;
+    case 'structDestroyed':
+      game.fx.explosion(ev.x, ev.y);
+      break;
     case 'phase':
       game.phase = ev.phase;
       game.phaseEndsTick = ev.endsTick;
@@ -425,6 +441,7 @@ async function setupScene(
   game?.entities.clear();
   game?.projectiles.clear();
   game?.sacks.clear();
+  game?.structures.clear();
   game?.fx.clear();
   game?.fog.destroy();
   const hud = game?.hud ?? new Hud(cfg);
@@ -449,11 +466,13 @@ async function setupScene(
     entities: new EntityLayer(scene.entityLayer, cfg),
     projectiles: new ProjectileLayer(scene.projectileLayer, welcome.tickRate),
     sacks: new SackLayer(scene.sackLayer),
+    structures: new StructureLayer(scene.structureLayer),
     bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     fx: new FxLayer(scene.fxLayer),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
+    structOcc: null,
     ownKeep: keepSites[welcome.squadId] ?? { x: 0, y: 0 },
     keepInfo,
     ownGold: { bk: 0, g: 0, wd: 0, rb: 1 },
@@ -559,6 +578,7 @@ function frame(now: number): void {
 
   game.entities.sync(visible, roster, game.ownId, ownVisual);
   game.sacks.sync(interp.sacks, now);
+  game.structures.sync(interp.structures, game.ownSquad);
   if (ownPos) scene.follow(ownPos.x, ownPos.y);
 
   // ---- contextual banking prompt (the "how do I bank" tutorial, in place)
@@ -580,7 +600,7 @@ function frame(now: number): void {
       viewers.push({ x: e.x, y: e.y });
     }
   }
-  game.fog.update(now, viewers);
+  game.fog.update(now, viewers, game.structOcc);
 
   // ---- overlay (4Hz)
   if (now - lastOverlay > 250) {
@@ -674,6 +694,14 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
       }
       break;
     }
+  }
+
+  // Lowest priority: teach building where there's room and supply — but not
+  // while hauling gold (a carrier's screen shouldn't nag about walls).
+  if (!html && latestYou.carried === 0 && latestYou.supply >= game.cfg.build.wall.cost) {
+    html =
+      `<span class="key">B</span> build a wall` +
+      `<div class="sub">aim where you want it · ${Math.floor(latestYou.supply)} supply</div>`;
   }
   game.hud.prompt(html);
 }
@@ -806,6 +834,7 @@ window.__fl = {
           rebuildTicks: latestYou.rebuildTicks,
           bombs: latestYou.bombs,
           bombCd: latestYou.bombCd,
+          supply: latestYou.supply,
         }
       : null,
     banking: game
@@ -819,6 +848,9 @@ window.__fl = {
       : null,
     keeps: game
       ? [...game.keepInfo.entries()].map(([squad, k]) => ({ squad, x: k.x, y: k.y, hp: k.hp }))
+      : null,
+    structures: game
+      ? interp.structures.map((s) => ({ i: s.i, squad: s.s, tx: s.tx, ty: s.ty, hp: s.hp }))
       : null,
     ownEliminated: game?.ownEliminated ?? false,
     disconnected,

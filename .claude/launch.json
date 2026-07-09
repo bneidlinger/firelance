@@ -36,6 +36,25 @@
         "11"
       ],
       "port": 8787
+    },
+    {
+      "name": "verify-m4s1",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "packages/server/src/index.ts",
+        "--port",
+        "8788",
+        "--config",
+        "prototype",
+        "--bots",
+        "11",
+        "--seed",
+        "7",
+        "--static",
+        "packages/client/dist"
+      ],
+      "port": 8788
     }
   ]
 }

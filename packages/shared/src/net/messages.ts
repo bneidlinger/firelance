@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 // ---------------------------------------------------------------- client → server
 
@@ -112,6 +112,25 @@ export interface SackSnap {
 }
 
 /**
+ * A visible structure (wall in M4 s1; gate/tower/trap later). Fog rules: own
+ * squad always; enemy structures only once a squadmate has eyes on the tile
+ * (design §12.1 lists built structures as hidden information).
+ */
+export interface StructSnap {
+  i: number;
+  /** Kind: 0 = wall. */
+  k: number;
+  /** Owning squad — colors it; not secret once seen. */
+  s: number;
+  /** Grid tile (integers); the segment fills [tx,tx+1]×[ty,ty+1]. */
+  tx: number;
+  ty: number;
+  /** Current / max hp — drives a damage tint. */
+  hp: number;
+  mx: number;
+}
+
+/**
  * The recipient's own authoritative state — full precision. The MoveState
  * mirror feeds prediction reconciliation; the rest drives the HUD and
  * client-side fire gating (muzzle prediction).
@@ -146,6 +165,8 @@ export interface YouSnap {
   bombs: number;
   /** Ticks until the next bomb throw. */
   bombCd: number;
+  /** Your squad's build-supply pool (drives the build HUD; cap is cfg.build.supplyCap). */
+  supply: number;
 }
 
 export interface SnapMsg {
@@ -158,6 +179,8 @@ export interface SnapMsg {
   ents: EntitySnap[];
   /** Ground sacks this squad can currently see (same fog rules as entities). */
   sacks: SackSnap[];
+  /** Structures this squad can currently see (own always; enemy once eyes-on). */
+  structures: StructSnap[];
 }
 
 /** Sim events plus match-level joins/leaves; fog policy applied server-side. */

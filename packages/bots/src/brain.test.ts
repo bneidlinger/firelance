@@ -63,9 +63,11 @@ function snap(brain: BotBrain, tick: number, enemySt = 0): void {
       rebuildTicks: 0,
       bombs: 2,
       bombCd: 0,
+      supply: 0,
     },
     ents: [{ i: 2, x: 26.5, y: 20.5, ax: 1, ay: 0, hp: 90, cls: 'ranger', st: enemySt }],
     sacks,
+    structures: [],
   };
   brain.handleServer(msg);
 }

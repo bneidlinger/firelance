@@ -15,7 +15,7 @@ export interface InputCmd {
   /** Aim unit vector (used as data — never re-derived via trig in the sim). */
   ax: number;
   ay: number;
-  /** Button bitmask: 1 fire, 2 block, 4 dash, 8 interact (M2+). */
+  /** Button bitmask: 1 fire, 2 block, 4 dash, 8 interact, 16 bomb, 32 build. */
   b: number;
 }
 
@@ -24,6 +24,12 @@ export const BTN_BLOCK = 2;
 export const BTN_DASH = 4;
 export const BTN_INTERACT = 8;
 export const BTN_BOMB = 16;
+export const BTN_BUILD = 32;
+
+// Structure kinds. Wall is the only one in M4 slice 1; gate/tower/trap widen
+// StructureKind in later slices.
+export const STRUCT_WALL = 0;
+export type StructureKind = 0;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 
@@ -103,6 +109,10 @@ export interface Player {
   bombCd: number;
   /** Previous tick's bomb button — throws are edge-triggered. */
   prevBombB: number;
+  /** Previous tick's build button — placements are edge-triggered. */
+  prevBuildB: number;
+  /** Cooldown ticks until the next wall placement. */
+  buildCd: number;
 
   /** Last applied input; server reuses it when a fresh one hasn't arrived (TCP delay). */
   input: InputCmd;
@@ -143,6 +153,11 @@ export interface SquadState {
   bankedGold: number;
   /** Total gold ever minted to this squad; keeps the withdraw reserve honest. */
   lifetimeGold: number;
+  /** Build-supply pool (a separate resource from gold — never scores). Fed by a
+   *  living keep, spent into structures; a pure sink (no refunds). */
+  supply: number;
+  /** Total supply ever generated to this squad (supply ≤ supplyMinted always). */
+  supplyMinted: number;
 }
 
 /** A lobbed firebomb in flight; resolves into a blast at landTick. */
@@ -168,6 +183,18 @@ export interface LootSack {
   bornTick: number;
 }
 
+/** A placed structure occupying one grid tile (tx,ty); center at (tx+.5, ty+.5).
+ *  Blocks movement and vision while hp > 0; leaves the world when it hits 0. */
+export interface Structure {
+  id: number;
+  kind: StructureKind;
+  squad: number;
+  tx: number;
+  ty: number;
+  hp: number;
+  maxHp: number;
+}
+
 export interface World {
   tick: number;
   rng: RngState;
@@ -183,6 +210,7 @@ export interface World {
   projectiles: Map<number, Projectile>;
   sacks: Map<number, LootSack>;
   bombs: Map<number, Bomb>;
+  structures: Map<number, Structure>;
   squads: SquadState[];
 }
 
@@ -228,6 +256,8 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
       keepGold: 0,
       bankedGold: 0,
       lifetimeGold: 0,
+      supply: cfg.build.supplyStart,
+      supplyMinted: cfg.build.supplyStart,
     });
   }
   return {
@@ -242,6 +272,7 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
     projectiles: new Map(),
     sacks: new Map(),
     bombs: new Map(),
+    structures: new Map(),
     squads,
   };
 }
@@ -305,6 +336,8 @@ export function spawnPlayer(
     bombs: cfg.firebomb.carried,
     bombCd: 0,
     prevBombB: 0,
+    prevBuildB: 0,
+    buildCd: 0,
     input: { ...IDLE_INPUT },
   };
   world.players.set(p.id, p);
@@ -354,6 +387,8 @@ export function serializeWorld(world: World): string {
     bm: p.bombs,
     bcd: p.bombCd,
     pbb: p.prevBombB,
+    pvb: p.prevBuildB,
+    blc: p.buildCd,
   }));
   const projectiles = [...world.projectiles.values()].map((pr) => ({
     id: pr.id,
@@ -387,6 +422,15 @@ export function serializeWorld(world: World): string {
     lt: b.landTick,
     bt: b.bornTick,
   }));
+  const structures = [...world.structures.values()].map((s) => ({
+    id: s.id,
+    k: s.kind,
+    sq: s.squad,
+    tx: s.tx,
+    ty: s.ty,
+    hp: s.hp,
+    mh: s.maxHp,
+  }));
   const squads = world.squads.map((s) => ({
     id: s.id,
     kx: s.keepX,
@@ -398,6 +442,8 @@ export function serializeWorld(world: World): string {
     g: s.keepGold,
     bk: s.bankedGold,
     lt: s.lifetimeGold,
+    sup: s.supply,
+    sm: s.supplyMinted,
   }));
   return JSON.stringify({
     tick: world.tick,
@@ -411,6 +457,7 @@ export function serializeWorld(world: World): string {
     projectiles,
     sacks,
     bombs,
+    structures,
     squads,
   });
 }

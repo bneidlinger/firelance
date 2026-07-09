@@ -68,6 +68,14 @@ export function isBlocking(b: number, hasShield: boolean, dashTicks: number): bo
 
 const SKIN = 1e-4; // keep circles a hair off walls so re-tests don't jitter
 
+/** Solid = static blocker (#/~/OOB) OR a live structure occupying this tile.
+ *  The occupancy set is prediction-shared — the client rebuilds it from its
+ *  snapshot, so walls collide bit-for-bit with the server. */
+function solid(map: MapData, occ: ReadonlySet<number> | null, tx: number, ty: number): boolean {
+  if (isWalkBlocked(map, tx, ty)) return true;
+  return occ !== null && occ.has(ty * map.width + tx);
+}
+
 export function stepMovement(
   s: MoveState,
   input: InputCmd,
@@ -75,6 +83,7 @@ export function stepMovement(
   map: MapData,
   dt: number,
   speedFactor = 1,
+  occ: ReadonlySet<number> | null = null,
 ): void {
   const r = params.radius;
 
@@ -128,27 +137,34 @@ export function stepMovement(
   }
 
   // Axis-separated move + resolve: X first, then Y. Produces natural wall slide.
-  moveAxis(s, s.vx * dt, 0, r, map);
-  moveAxis(s, 0, s.vy * dt, r, map);
+  moveAxis(s, s.vx * dt, 0, r, map, occ);
+  moveAxis(s, 0, s.vy * dt, r, map, occ);
 
   s.prevB = input.b;
 }
 
-function moveAxis(s: MoveState, dx: number, dy: number, r: number, map: MapData): void {
+function moveAxis(
+  s: MoveState,
+  dx: number,
+  dy: number,
+  r: number,
+  map: MapData,
+  occ: ReadonlySet<number> | null,
+): void {
   if (dx !== 0) {
     const nx = s.x + dx;
     const yMin = Math.floor(s.y - r);
     const yMax = Math.floor(s.y + r);
     if (dx > 0) {
       const col = Math.floor(nx + r);
-      if (anyBlockedInColumn(map, col, yMin, yMax)) {
+      if (anyBlockedInColumn(map, col, yMin, yMax, occ)) {
         s.x = col - r - SKIN;
       } else {
         s.x = nx;
       }
     } else {
       const col = Math.floor(nx - r);
-      if (anyBlockedInColumn(map, col, yMin, yMax)) {
+      if (anyBlockedInColumn(map, col, yMin, yMax, occ)) {
         s.x = col + 1 + r + SKIN;
       } else {
         s.x = nx;
@@ -161,14 +177,14 @@ function moveAxis(s: MoveState, dx: number, dy: number, r: number, map: MapData)
     const xMax = Math.floor(s.x + r);
     if (dy > 0) {
       const row = Math.floor(ny + r);
-      if (anyBlockedInRow(map, row, xMin, xMax)) {
+      if (anyBlockedInRow(map, row, xMin, xMax, occ)) {
         s.y = row - r - SKIN;
       } else {
         s.y = ny;
       }
     } else {
       const row = Math.floor(ny - r);
-      if (anyBlockedInRow(map, row, xMin, xMax)) {
+      if (anyBlockedInRow(map, row, xMin, xMax, occ)) {
         s.y = row + 1 + r + SKIN;
       } else {
         s.y = ny;
@@ -177,16 +193,28 @@ function moveAxis(s: MoveState, dx: number, dy: number, r: number, map: MapData)
   }
 }
 
-function anyBlockedInColumn(map: MapData, col: number, yMin: number, yMax: number): boolean {
+function anyBlockedInColumn(
+  map: MapData,
+  col: number,
+  yMin: number,
+  yMax: number,
+  occ: ReadonlySet<number> | null,
+): boolean {
   for (let ty = yMin; ty <= yMax; ty++) {
-    if (isWalkBlocked(map, col, ty)) return true;
+    if (solid(map, occ, col, ty)) return true;
   }
   return false;
 }
 
-function anyBlockedInRow(map: MapData, row: number, xMin: number, xMax: number): boolean {
+function anyBlockedInRow(
+  map: MapData,
+  row: number,
+  xMin: number,
+  xMax: number,
+  occ: ReadonlySet<number> | null,
+): boolean {
   for (let tx = xMin; tx <= xMax; tx++) {
-    if (isWalkBlocked(map, tx, row)) return true;
+    if (solid(map, occ, tx, row)) return true;
   }
   return false;
 }
@@ -200,6 +228,7 @@ export function pushoutPairs(
   bodies: Array<{ x: number; y: number }>,
   r: number,
   map: MapData,
+  occ: ReadonlySet<number> | null = null,
 ): void {
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
@@ -227,21 +256,26 @@ export function pushoutPairs(
       a.y -= ny * push;
       b.x += nx * push;
       b.y += ny * push;
-      resolveStaticOverlap(a, r, map);
-      resolveStaticOverlap(b, r, map);
+      resolveStaticOverlap(a, r, map, occ);
+      resolveStaticOverlap(b, r, map, occ);
     }
   }
 }
 
-/** Nudge a circle out of any wall tile it overlaps (post-pushout cleanup). */
-function resolveStaticOverlap(s: { x: number; y: number }, r: number, map: MapData): void {
+/** Nudge a circle out of any solid tile (wall or structure) it overlaps. */
+function resolveStaticOverlap(
+  s: { x: number; y: number },
+  r: number,
+  map: MapData,
+  occ: ReadonlySet<number> | null,
+): void {
   const txMin = Math.floor(s.x - r);
   const txMax = Math.floor(s.x + r);
   const tyMin = Math.floor(s.y - r);
   const tyMax = Math.floor(s.y + r);
   for (let ty = tyMin; ty <= tyMax; ty++) {
     for (let tx = txMin; tx <= txMax; tx++) {
-      if (!isWalkBlocked(map, tx, ty)) continue;
+      if (!solid(map, occ, tx, ty)) continue;
       // Closest point on tile AABB to circle center.
       const cx = s.x < tx ? tx : s.x > tx + 1 ? tx + 1 : s.x;
       const cy = s.y < ty ? ty : s.y > ty + 1 ? ty + 1 : s.y;

@@ -1,7 +1,7 @@
 import type { GameConfig } from '@shared/config';
 import { getKit } from '@shared/config';
 import type { MapData } from '@shared/map/types';
-import type { EntitySnap, SackSnap, YouSnap } from '@shared/net/messages';
+import type { EntitySnap, SackSnap, StructSnap, YouSnap } from '@shared/net/messages';
 import {
   ST_ACTIVE,
   ST_BANKING,
@@ -13,6 +13,7 @@ import {
 } from '@shared/net/messages';
 import { isVisibleToSquad } from '@shared/sim/vision';
 import { isBlocking } from '@shared/sim/systems/movement';
+import { buildOccupancy } from '@shared/sim/systems/structures';
 import type { Player, World } from '@shared/sim/world';
 import { ATK_ACTIVE, ATK_WINDUP } from '@shared/sim/world';
 
@@ -56,10 +57,12 @@ export function buildSquadEnts(
 ): EntitySnap[] {
   const ents: EntitySnap[] = [];
   const spectator = isSpectator(world, squadId);
+  // Structures occlude sight: an enemy behind a wall is correctly hidden.
+  const occ = buildOccupancy(world, map.width);
   for (const p of world.players.values()) {
     if (!p.alive) continue; // the dead exist only in events/roster
     const ally = p.squad === squadId;
-    if (!ally && !spectator && !isVisibleToSquad(world, map, cfg, squadId, p.x, p.y)) continue;
+    if (!ally && !spectator && !isVisibleToSquad(world, map, cfg, squadId, p.x, p.y, occ)) continue;
     const snap: EntitySnap = {
       i: p.id,
       x: q(p.x),
@@ -86,11 +89,43 @@ export function buildSquadSacks(
 ): SackSnap[] {
   const sacks: SackSnap[] = [];
   const spectator = isSpectator(world, squadId);
+  const occ = buildOccupancy(world, map.width);
   for (const s of world.sacks.values()) {
-    if (!spectator && !isVisibleToSquad(world, map, cfg, squadId, s.x, s.y)) continue;
+    if (!spectator && !isVisibleToSquad(world, map, cfg, squadId, s.x, s.y, occ)) continue;
     sacks.push({ i: s.id, x: q(s.x), y: q(s.y), g: s.gold });
   }
   return sacks;
+}
+
+/**
+ * Structures this squad may see: own always, enemy only with a squadmate's eyes
+ * on the tile. LOS here is TERRAIN-ONLY (no structure occupancy) — a wall must
+ * never occlude itself, or you could never see the very wall you're facing.
+ */
+export function buildSquadStructures(
+  world: World,
+  map: MapData,
+  cfg: GameConfig,
+  squadId: number,
+): StructSnap[] {
+  const out: StructSnap[] = [];
+  const spectator = isSpectator(world, squadId);
+  for (const s of world.structures.values()) {
+    const own = s.squad === squadId;
+    const cx = s.tx + 0.5;
+    const cy = s.ty + 0.5;
+    if (!own && !spectator && !isVisibleToSquad(world, map, cfg, squadId, cx, cy)) continue;
+    out.push({
+      i: s.id,
+      k: s.kind,
+      s: s.squad,
+      tx: s.tx,
+      ty: s.ty,
+      hp: Math.ceil(s.hp),
+      mx: s.maxHp,
+    });
+  }
+  return out;
 }
 
 export function buildYou(world: World, p: Player): YouSnap {
@@ -117,5 +152,6 @@ export function buildYou(world: World, p: Player): YouSnap {
     rebuildTicks: p.rebuildTicks,
     bombs: p.bombs,
     bombCd: p.bombCd,
+    supply: world.squads[p.squad]?.supply ?? 0,
   };
 }

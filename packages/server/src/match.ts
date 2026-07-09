@@ -19,7 +19,7 @@ import {
 import { removePlayerSpillingGold, withdrawableGold } from '@shared/sim/systems/economy';
 import { acceptInput, createInputSlot, type InputSlot } from './inputs';
 import { ReplayRecorder } from './replay';
-import { buildSquadEnts, buildSquadSacks, buildYou } from './snapshot';
+import { buildSquadEnts, buildSquadSacks, buildSquadStructures, buildYou } from './snapshot';
 import type { ClientConn } from './transport';
 
 interface Seat {
@@ -411,6 +411,7 @@ export class Match {
       const events = this.filterEventsForSquad(squad);
       const ents = buildSquadEnts(this.worldState, this.map, this.cfg, squad);
       const sacks = buildSquadSacks(this.worldState, this.map, this.cfg, squad);
+      const structures = buildSquadStructures(this.worldState, this.map, this.cfg, squad);
       for (const seat of members) {
         const p = this.worldState.players.get(seat.id);
         if (!p) continue;
@@ -424,6 +425,7 @@ export class Match {
           you: buildYou(this.worldState, p),
           ents,
           sacks,
+          structures,
         });
         this.stats.snapshotsSent++;
       }
@@ -458,6 +460,12 @@ export class Match {
           out.push(ev);
           break;
         case 'sackTaken':
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'structBuilt':
+        case 'structDestroyed':
+          // Positional: your own building is always yours to see; enemy building
+          // (design §12.1 hidden) only with eyes on the tile.
           if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
           break;
         case 'keepHit':

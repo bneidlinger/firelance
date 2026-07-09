@@ -8,6 +8,7 @@ import { tileRayClear } from '../vision';
 import { applyDamage } from './combat';
 import { damageKeep, keepsInRange } from './keep';
 import { isBlocking } from './movement';
+import { damageStructure, structuresInRange } from './structures';
 
 // Attack intent → attack state machines → damage/projectiles.
 //   Fighter melee: windup (the dodgeable telegraph, aim locked at start)
@@ -19,7 +20,13 @@ import { isBlocking } from './movement';
 // blocking. Holding fire re-attacks at the cooldown rate (bot- and
 // human-friendly; no click spam advantage).
 
-export function stepAttacks(world: World, cfg: GameConfig, map: MapData, events: SimEvent[]): void {
+export function stepAttacks(
+  world: World,
+  cfg: GameConfig,
+  map: MapData,
+  events: SimEvent[],
+  occ: ReadonlySet<number> | null = null,
+): void {
   for (const p of world.players.values()) {
     if (!p.alive) continue;
     if (p.atkCd > 0) p.atkCd--;
@@ -47,7 +54,7 @@ export function stepAttacks(world: World, cfg: GameConfig, map: MapData, events:
 
     // Melee active window: sector hit test every active tick.
     if (p.atkPhase === ATK_ACTIVE && kit.melee) {
-      meleeHitTest(world, cfg, map, p, events);
+      meleeHitTest(world, cfg, map, p, events, occ);
     }
 
     // Fire intent.
@@ -89,6 +96,7 @@ function meleeHitTest(
   map: MapData,
   attacker: Player,
   events: SimEvent[],
+  occ: ReadonlySet<number> | null,
 ): void {
   const melee = getKit(cfg, attacker.cls).melee!;
   const reach = melee.range + cfg.player.radius;
@@ -105,8 +113,8 @@ function meleeHitTest(
       const dot = (dx / d) * attacker.atkDirX + (dy / d) * attacker.atkDirY;
       if (dot < melee.arcCosHalf) continue;
     }
-    // No swinging through walls (tile-thin corners would poke otherwise).
-    if (!tileRayClear(map, attacker.x, attacker.y, victim.x, victim.y)) continue;
+    // No swinging through walls or structures (tile-thin corners would poke otherwise).
+    if (!tileRayClear(map, attacker.x, attacker.y, victim.x, victim.y, occ)) continue;
     attacker.atkHitIds.push(victim.id);
     applyDamage(world, cfg, attacker, victim, melee.damage, 'melee', events);
   }
@@ -125,9 +133,30 @@ function meleeHitTest(
       const dot = (dx / d) * attacker.atkDirX + (dy / d) * attacker.atkDirY;
       if (dot < melee.arcCosHalf) continue;
     }
-    if (!tileRayClear(map, attacker.x, attacker.y, keep.keepX, keep.keepY)) continue;
+    if (!tileRayClear(map, attacker.x, attacker.y, keep.keepX, keep.keepY, occ)) continue;
     attacker.atkHitIds.push(pseudoId);
     damageKeep(world, cfg, keep, cfg.keep.meleeDamage, events);
+  }
+
+  // Chip vs enemy structures — one hit per swing per target. Distinct pseudo-id
+  // namespace (offset 1e6) so a swing that clips both a keep and a wall lands on
+  // each. LOS uses terrain only (occ omitted): a wall must not occlude ITSELF.
+  for (const s of structuresInRange(world, attacker.x, attacker.y, reach, attacker.squad)) {
+    const pseudoId = -(s.id + 1_000_000);
+    if (attacker.atkHitIds.includes(pseudoId)) continue;
+    const cx = s.tx + 0.5;
+    const cy = s.ty + 0.5;
+    const dx = cx - attacker.x;
+    const dy = cy - attacker.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 1e-12) {
+      const d = Math.sqrt(d2);
+      const dot = (dx / d) * attacker.atkDirX + (dy / d) * attacker.atkDirY;
+      if (dot < melee.arcCosHalf) continue;
+    }
+    if (!tileRayClear(map, attacker.x, attacker.y, cx, cy)) continue;
+    attacker.atkHitIds.push(pseudoId);
+    damageStructure(world, s, cfg.build.wall.meleeDamage, events);
   }
 }
 

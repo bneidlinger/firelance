@@ -61,6 +61,19 @@ export type SimEvent =
   | { k: 'keepRebuilt'; tk: number; squad: number; x: number; y: number; by: number }
   /** GLOBAL: all dead with no keep — the squad is out (spectating). */
   | { k: 'eliminated'; tk: number; squad: number }
+  // -- structures (walls now; gates/towers/traps in later M4 slices), positional
+  /** A structure went up — POSITIONAL (fog hides enemy building until seen). */
+  | { k: 'structBuilt'; tk: number; id: number; squad: number; kind: number; x: number; y: number }
+  /** A structure was destroyed — POSITIONAL. */
+  | {
+      k: 'structDestroyed';
+      tk: number;
+      id: number;
+      squad: number;
+      kind: number;
+      x: number;
+      y: number;
+    }
   // -- lifecycle
   | { k: 'respawn'; tk: number; id: number; squad: number; x: number; y: number }
   // -- economy, global (bounty is public info)

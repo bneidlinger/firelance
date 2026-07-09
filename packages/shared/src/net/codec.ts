@@ -89,7 +89,8 @@ export function decodeServerMsg(data: unknown): DecodeResult<ServerMsg> {
         !isFiniteNumber(m.tick) ||
         !isFiniteNumber(m.ackSeq) ||
         !Array.isArray(m.ents) ||
-        !Array.isArray(m.sacks)
+        !Array.isArray(m.sacks) ||
+        !Array.isArray(m.structures)
       ) {
         return { ok: false, error: 'snap: bad shape' };
       }

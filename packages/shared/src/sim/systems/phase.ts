@@ -47,6 +47,7 @@ function goLive(world: World, cfg: GameConfig): void {
   world.projectiles.clear();
   world.sacks.clear();
   world.bombs.clear();
+  world.structures.clear();
   world.goldMinted = 0;
   for (const s of world.squads) {
     s.keepGold = 0;
@@ -56,6 +57,8 @@ function goLive(world: World, cfg: GameConfig): void {
     s.rebuildsLeft = 1;
     s.eliminated = false;
     s.lastAlarmTick = -1_000_000;
+    s.supply = cfg.build.supplyStart;
+    s.supplyMinted = cfg.build.supplyStart;
   }
   for (const p of world.players.values()) {
     const squad = world.squads[p.squad]!;
@@ -88,6 +91,8 @@ function goLive(world: World, cfg: GameConfig): void {
     p.bombs = cfg.firebomb.carried;
     p.bombCd = 0;
     p.prevBombB = p.input.b;
+    p.prevBuildB = p.input.b;
+    p.buildCd = 0;
   }
 }
 

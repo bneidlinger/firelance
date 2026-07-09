@@ -55,6 +55,33 @@ export interface ClassKit {
   shield?: ShieldConfig;
 }
 
+export interface WallConfig {
+  /** Build-supply consumed per wall segment. */
+  cost: number;
+  /** Wall hit points (firebomb.damage vs this sets the bombs-per-wall count). */
+  hp: number;
+  /** Per-squad cap on standing wall segments (fortress-spam guard). */
+  maxCount: number;
+  /** How far in front of the builder a segment may be placed (units). */
+  buildReach: number;
+  /** Per-builder cooldown between placements. */
+  buildCooldownSec: number;
+  /** Structure damage per melee swing against a wall (desperation chip). */
+  meleeDamage: number;
+}
+
+export interface BuildConfig {
+  /** Build-supply each squad starts a live match with. */
+  supplyStart: number;
+  /** Build-supply a LIVING keep generates per second (stops when it falls). */
+  supplyPerSec: number;
+  /** Ceiling on a squad's build-supply pool. */
+  supplyCap: number;
+  /** A wall may not be placed within this many units of an ENEMY keep. */
+  enemyKeepExclusion: number;
+  wall: WallConfig;
+}
+
 export interface GameConfig {
   /** Preset name, included in cfgHash so client/server mismatches fail loudly. */
   name: string;
@@ -178,6 +205,8 @@ export interface GameConfig {
     /** Targets standing in forest are only visible inside this radius. */
     forestRadius: number;
   };
+
+  build: BuildConfig;
 }
 
 export type GameConfigOverrides = DeepPartial<GameConfig>;

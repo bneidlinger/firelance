@@ -14,10 +14,21 @@ import type { World } from './world';
 //     (forests conceal at range but not up close; rays still apply).
 // Viewers inside forest see out normally — hiding in the treeline works.
 
+/** Vision-blocked = static blocker (#/OOB) OR a live structure on this tile. */
+function visBlocked(
+  map: MapData,
+  occ: ReadonlySet<number> | null,
+  tx: number,
+  ty: number,
+): boolean {
+  if (isVisionBlocked(map, tx, ty)) return true;
+  return occ !== null && occ.has(ty * map.width + tx);
+}
+
 /**
  * True when no vision-blocking tile lies strictly between the two points.
  * Amanatides–Woo grid traversal; start tile never blocks, end tile does
- * (a target inside a wall is not visible).
+ * (a target inside a wall is not visible). Structures occlude via `occ`.
  */
 export function tileRayClear(
   map: MapData,
@@ -25,6 +36,7 @@ export function tileRayClear(
   y0: number,
   x1: number,
   y1: number,
+  occ: ReadonlySet<number> | null = null,
 ): boolean {
   let tx = Math.floor(x0);
   let ty = Math.floor(y0);
@@ -51,7 +63,7 @@ export function tileRayClear(
       tMaxY += tDeltaY;
       ty += stepY;
     }
-    if (isVisionBlocked(map, tx, ty)) return false;
+    if (visBlocked(map, occ, tx, ty)) return false;
     if (tx === txEnd && ty === tyEnd) return true;
   }
   return false;
@@ -65,6 +77,7 @@ export function canSeePoint(
   vy: number,
   px: number,
   py: number,
+  occ: ReadonlySet<number> | null = null,
 ): boolean {
   const dx = px - vx;
   const dy = py - vy;
@@ -76,7 +89,7 @@ export function canSeePoint(
     const fr = cfg.vision.forestRadius;
     if (d2 > fr * fr) return false;
   }
-  return tileRayClear(map, vx, vy, px, py);
+  return tileRayClear(map, vx, vy, px, py, occ);
 }
 
 /** Union of what every living member of the squad can see. */
@@ -87,10 +100,11 @@ export function isVisibleToSquad(
   squadId: number,
   px: number,
   py: number,
+  occ: ReadonlySet<number> | null = null,
 ): boolean {
   for (const p of world.players.values()) {
     if (p.squad !== squadId || !p.alive) continue;
-    if (canSeePoint(map, cfg, p.x, p.y, px, py)) return true;
+    if (canSeePoint(map, cfg, p.x, p.y, px, py, occ)) return true;
   }
   return false;
 }

@@ -24,6 +24,7 @@ export class Scene {
   readonly world = new Container();
   readonly mapLayer = new Container();
   readonly keepLayer = new Container();
+  readonly structureLayer = new Container();
   readonly sackLayer = new Container();
   readonly entityLayer = new Container();
   readonly projectileLayer = new Container();
@@ -33,10 +34,11 @@ export class Scene {
 
   private constructor(app: Application) {
     this.app = app;
-    // Draw order: terrain, keep markers, ground loot, bodies, arrows over
-    // bodies, bombs arc over everything mortal, sparks, fog veils all.
+    // Draw order: terrain, keep markers, WALLS (sit on the ground), ground loot,
+    // bodies, arrows over bodies, bombs arc over everything mortal, sparks, fog.
     this.world.addChild(this.mapLayer);
     this.world.addChild(this.keepLayer);
+    this.world.addChild(this.structureLayer);
     this.world.addChild(this.sackLayer);
     this.world.addChild(this.entityLayer);
     this.world.addChild(this.projectileLayer);
