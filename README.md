@@ -34,7 +34,7 @@ http://localhost:5173 and you're the 12th seat.
 | left click         | fire bow / swing (hold to keep attacking)                  |
 | right click (hold) | shield block — Fighter only, frontal 120°, slows you       |
 | Space / Shift      | dash (displacement dodge, no i-frames; ignores carry slow) |
-| E (hold)           | load gold at your keep / bank at a town / rebuild (still)  |
+| E (hold)           | claim a keep site (placement) / load gold / bank / rebuild |
 | F                  | lob a firebomb toward your aim (anti-structure)            |
 | B                  | build a wall at your aim (2 tiles out; costs build supply) |
 | 1 / 2              | switch to Fighter / Ranger at next respawn                 |

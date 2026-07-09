@@ -38,7 +38,7 @@
       "port": 8787
     },
     {
-      "name": "verify-m4s1",
+      "name": "verify-m4",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
         "tsx",
@@ -46,7 +46,7 @@
         "--port",
         "8788",
         "--config",
-        "prototype",
+        "verify",
         "--bots",
         "11",
         "--seed",

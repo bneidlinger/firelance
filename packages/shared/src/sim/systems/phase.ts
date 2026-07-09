@@ -1,16 +1,39 @@
 import type { GameConfig } from '../../config';
 import { getKit, secToTicks } from '../../config';
+import type { MapData } from '../../map/types';
 import type { SimEvent } from '../events';
 import type { World } from '../world';
-import { ATK_IDLE, PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, SPAWN_OFFSETS } from '../world';
+import {
+  ATK_IDLE,
+  PHASE_COUNTDOWN,
+  PHASE_ENDED,
+  PHASE_LIVE,
+  PHASE_PLACEMENT,
+  SPAWN_OFFSETS,
+} from '../world';
+import { plantKeep, siteClaimed } from './claims';
 
-// Match flow: countdown → live → ended. The countdown is a free-move warmup
-// (combat is gated on PHASE_LIVE elsewhere); going live hard-resets positions
-// and the economy so warmup can't pollute the match. The sim never restarts
-// itself — the server watches phaseEndsTick while ended and builds a fresh
-// world.
+// Match flow: placement → countdown → live → ended. Placement (M4) is a
+// free-move window where squads claim keep sites (claims.ts); its deadline
+// auto-assigns the rest. The countdown is a free-move warmup (combat is gated
+// on PHASE_LIVE elsewhere); going live hard-resets positions and the economy
+// so warmup can't pollute the match. Zero-duration phases collapse within one
+// call (sequential ifs), so smoke configs still go live on tick 1. The sim
+// never restarts itself — the server watches phaseEndsTick while ended and
+// builds a fresh world.
 
-export function stepPhase(world: World, cfg: GameConfig, events: SimEvent[]): void {
+export function stepPhase(world: World, cfg: GameConfig, map: MapData, events: SimEvent[]): void {
+  if (world.phase === PHASE_PLACEMENT && world.tick >= world.phaseEndsTick) {
+    finalizePlacement(world, map, events);
+    world.phase = PHASE_COUNTDOWN;
+    world.phaseEndsTick = world.tick + secToTicks(cfg, cfg.match.countdownSec);
+    events.push({
+      k: 'phase',
+      tk: world.tick,
+      phase: PHASE_COUNTDOWN,
+      endsTick: world.phaseEndsTick,
+    });
+  }
   if (world.phase === PHASE_COUNTDOWN && world.tick >= world.phaseEndsTick) {
     goLive(world, cfg);
     events.push({ k: 'phase', tk: world.tick, phase: PHASE_LIVE, endsTick: world.phaseEndsTick });
@@ -38,6 +61,37 @@ export function stepPhase(world: World, cfg: GameConfig, events: SimEvent[]): vo
     if (contenders <= 1 || world.tick >= world.phaseEndsTick) {
       endMatch(world, cfg, events);
     }
+  }
+}
+
+/**
+ * Placement deadline: every squad without a claim gets the nearest unclaimed
+ * site to its map spawn — the same greedy assignKeeps used for the provisional
+ * layout, restricted to what's left, so a no-claims match lands exactly on the
+ * M0–M3 default. Deterministic by squad index; claims killed the ties.
+ */
+function finalizePlacement(world: World, map: MapData, events: SimEvent[]): void {
+  for (const squad of world.squads) {
+    if (squad.claimedSite >= 0) continue;
+    const spawn = map.spawns[squad.id] ?? map.spawns[0]!;
+    let best = -1;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < map.keeps.length; i++) {
+      if (siteClaimed(world, i)) continue;
+      const site = map.keeps[i]!;
+      const d = (site.x - spawn.x) ** 2 + (site.y - spawn.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    // More squads than sites can't happen on authored maps (sites ≥ squads),
+    // but mirror assignKeeps' reuse fallback rather than crash.
+    plantKeep(world, squad, map, best >= 0 ? best : squad.id % map.keeps.length, null, events);
+  }
+  for (const p of world.players.values()) {
+    p.claimTicks = 0;
+    p.claimSiteIdx = -1;
   }
 }
 
@@ -93,6 +147,8 @@ function goLive(world: World, cfg: GameConfig): void {
     p.prevBombB = p.input.b;
     p.prevBuildB = p.input.b;
     p.buildCd = 0;
+    p.claimTicks = 0;
+    p.claimSiteIdx = -1;
   }
 }
 

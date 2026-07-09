@@ -29,6 +29,7 @@ function welcome(brain: BotBrain): void {
       { id: 1, squad: 0, name: 'me', bot: true },
       { id: 2, squad: 1, name: 'enemy', bot: true },
     ],
+    keeps: [],
     resume: 'tok',
   });
 }
@@ -64,6 +65,7 @@ function snap(brain: BotBrain, tick: number, enemySt = 0): void {
       bombs: 2,
       bombCd: 0,
       supply: 0,
+      claimTicks: 0,
     },
     ents: [{ i: 2, x: 26.5, y: 20.5, ax: 1, ay: 0, hp: 90, cls: 'ranger', st: enemySt }],
     sacks,

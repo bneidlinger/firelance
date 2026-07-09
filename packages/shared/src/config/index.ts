@@ -40,21 +40,29 @@ export function defineConfig(overrides: DeepPartial<GameConfig>): GameConfig {
 /** Compressed preset for fast playtest iteration (~8 min matches). */
 export const prototypeConfig: GameConfig = defineConfig({
   name: 'prototype',
-  match: { durationSec: 8 * 60, countdownSec: 5 },
+  match: { durationSec: 8 * 60, placementSec: 20, countdownSec: 5 },
 });
 
 /** Tiny preset for CI smoke matches (2–3 min game time, instant start). */
 export const smokeConfig: GameConfig = defineConfig({
   name: 'smoke',
-  match: { durationSec: 150, countdownSec: 0, restartSec: 5 },
+  match: { durationSec: 150, placementSec: 0, countdownSec: 0, restartSec: 5 },
   // Fast respawns keep combat flowing in compressed matches.
   player: { respawnSec: 4 },
+});
+
+/** Browser-verification preset: a long placement window so scripted claims
+ *  survive slow automation cadence. Never used for real matches or CI. */
+export const verifyConfig: GameConfig = defineConfig({
+  name: 'verify',
+  match: { durationSec: 8 * 60, placementSec: 120, countdownSec: 5 },
 });
 
 const presets: Record<string, GameConfig> = {
   default: defaultConfig,
   prototype: prototypeConfig,
   smoke: smokeConfig,
+  verify: verifyConfig,
 };
 
 export function getConfigPreset(name: string): GameConfig {

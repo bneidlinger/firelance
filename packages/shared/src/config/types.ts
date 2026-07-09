@@ -100,6 +100,10 @@ export interface GameConfig {
     playersPerSquad: number;
     /** Match length in seconds once live. */
     durationSec: number;
+    /** Keep-placement window before the countdown: squads spawn at their map
+     *  corners and may claim a keep site; unclaimed squads are auto-assigned
+     *  when it expires. 0 = skip (auto-assign immediately, M0–M3 behavior). */
+    placementSec: number;
     /** Countdown before the match goes live. */
     countdownSec: number;
     /** Pause on the end screen before the server restarts the match. */
@@ -158,6 +162,8 @@ export interface GameConfig {
     meleeDamage: number;
     /** Min seconds between under-attack alarms to the owning squad. */
     alarmCooldownSec: number;
+    /** Stand-still channel to claim a keep site during the placement phase. */
+    claimChannelSec: number;
     /** Carried gold consumed by the emergency rebuild (transfers INTO the new vault). */
     rebuildCost: number;
     /** Stand-still channel length for the rebuild. */

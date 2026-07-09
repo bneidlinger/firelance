@@ -10,13 +10,15 @@ import {
   PHASE_COUNTDOWN,
   PHASE_ENDED,
   PHASE_LIVE,
+  PHASE_PLACEMENT,
   spawnPlayer,
 } from './world';
 
-// Match flow: countdown (free-move warmup, combat gated) → live (hard reset,
-// timer) → ended (winner by BANKED gold — M2's core rule switch; keep gold is
-// just unsecured wealth). The server-level auto-restart is tested in
-// packages/server/test.
+// Match flow: placement (claim keep sites — M4) → countdown (free-move
+// warmup, combat gated) → live (hard reset, timer) → ended (winner by BANKED
+// gold — M2's core rule switch; keep gold is just unsecured wealth). Claim
+// mechanics themselves are covered in claims.test.ts; the server-level
+// auto-restart in packages/server/test.
 
 const arena = parseMap(
   'flow-arena',
@@ -37,11 +39,20 @@ function run(world: World, cfg: typeof smokeConfig, n: number): SimEvent[] {
   return events;
 }
 
-describe('countdown → live', () => {
-  it('starts in countdown and goes live exactly at countdownSec', () => {
-    const cfg = prototypeConfig; // 5s countdown
+describe('placement → countdown → live', () => {
+  it('flows through each phase exactly on the configured schedule', () => {
+    const cfg = prototypeConfig; // 20s placement, 5s countdown
     const w = createWorld(1, cfg, arena);
+    expect(w.phase).toBe(PHASE_PLACEMENT);
+    const pl = secToTicks(cfg, cfg.match.placementSec);
+    run(w, cfg, pl - 1);
+    expect(w.phase).toBe(PHASE_PLACEMENT);
+    const toCountdown = run(w, cfg, 1);
     expect(w.phase).toBe(PHASE_COUNTDOWN);
+    expect(toCountdown.some((e) => e.k === 'phase' && e.phase === PHASE_COUNTDOWN)).toBe(true);
+    // The deadline auto-assigned every squad a unique site.
+    expect(toCountdown.filter((e) => e.k === 'keepClaimed').length).toBe(4);
+    expect(new Set(w.squads.map((s) => s.claimedSite)).size).toBe(4);
     const cd = secToTicks(cfg, cfg.match.countdownSec);
     run(w, cfg, cd - 1);
     expect(w.phase).toBe(PHASE_COUNTDOWN);
@@ -51,12 +62,22 @@ describe('countdown → live', () => {
     expect(w.phaseEndsTick).toBe(w.tick + secToTicks(cfg, cfg.match.durationSec));
   });
 
-  it('combat is disabled during the countdown', () => {
+  it('zero-duration placement and countdown collapse to live on tick 1 (smoke flow)', () => {
+    const cfg = smokeConfig;
+    const w = createWorld(1, cfg, arena);
+    expect(w.phase).toBe(PHASE_PLACEMENT);
+    run(w, cfg, 1);
+    expect(w.phase).toBe(PHASE_LIVE);
+    expect(w.squads.every((s) => s.claimedSite >= 0)).toBe(true);
+  });
+
+  it('combat is disabled before the match is live', () => {
     const cfg = prototypeConfig;
     const w = createWorld(1, cfg, arena);
     const p = spawnPlayer(w, cfg, 0, 'eager', true, 'ranger', 5.5, 3.5);
     p.input = { mx: 0, my: 0, ax: 1, ay: 0, b: BTN_FIRE };
-    run(w, cfg, 10); // still countdown
+    run(w, cfg, 10); // still placement
+    expect(w.phase).toBe(PHASE_PLACEMENT);
     expect(w.projectiles.size).toBe(0);
   });
 
@@ -72,7 +93,11 @@ describe('countdown → live', () => {
     p.carried = 50;
     w.goldMinted = 750;
     p.input = { mx: 1, my: 0, ax: 1, ay: 0, b: 0 };
-    run(w, cfg, secToTicks(cfg, cfg.match.countdownSec) + 1);
+    run(
+      w,
+      cfg,
+      secToTicks(cfg, cfg.match.placementSec) + secToTicks(cfg, cfg.match.countdownSec) + 1,
+    );
     expect(w.phase).toBe(PHASE_LIVE);
     const keep = w.squads[0]!;
     expect(Math.hypot(p.x - keep.keepX, p.y - keep.keepY)).toBeLessThan(2);

@@ -153,5 +153,6 @@ export function buildYou(world: World, p: Player): YouSnap {
     bombs: p.bombs,
     bombCd: p.bombCd,
     supply: world.squads[p.squad]?.supply ?? 0,
+    claimTicks: p.claimTicks,
   };
 }

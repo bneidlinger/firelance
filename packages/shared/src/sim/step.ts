@@ -11,6 +11,7 @@ import { stepAttacks } from './systems/attacks';
 import { stepProjectiles } from './systems/projectiles';
 import { stepBombs } from './systems/bombs';
 import { stepBanking } from './systems/banking';
+import { stepClaims } from './systems/claims';
 import { stepLifecycle } from './systems/lifecycle';
 import { stepPhase } from './systems/phase';
 import { buildOccupancy, stepStructures } from './systems/structures';
@@ -22,12 +23,13 @@ import { buildOccupancy, stepStructures } from './systems/structures';
  *
  * System order:
  *   applyInputs → movement → pushout → attacks → projectiles → bombs
- *   (throws + blasts; damage may destroy keeps AND walls) → banking
- *   (withdraw/deposit/pickup/restock/rebuild; after combat so same-tick
- *   damage breaks channels) → structures (supply trickle + wall placement) →
- *   lifecycle (regen/bounty/respawn, gated on a living keep) → phase
- *   (countdown/live/elimination/ended). Movement/vision consult a per-tick
- *   structure-occupancy set built at the top of the step.
+ *   (throws + blasts; damage may destroy keeps AND walls) → claims
+ *   (placement-phase keep-site channels) → banking (withdraw/deposit/pickup/
+ *   restock/rebuild; after combat so same-tick damage breaks channels) →
+ *   structures (supply trickle + wall placement) → lifecycle (regen/bounty/
+ *   respawn, gated on a living keep) → phase (placement/countdown/live/
+ *   elimination/ended). Movement/vision consult a per-tick structure-occupancy
+ *   set built at the top of the step.
  * Ended worlds freeze everything except the phase clock — the end screen is a
  * still frame until the server rebuilds the match.
  */
@@ -70,12 +72,13 @@ export function stepWorld(
     stepAttacks(world, cfg, map, events, occ);
     stepProjectiles(world, cfg, map, events, occ);
     stepBombs(world, cfg, events);
+    stepClaims(world, cfg, map, events);
     stepBanking(world, cfg, map, events);
     stepStructures(world, cfg, map, occ, events);
     stepLifecycle(world, cfg, events);
   }
 
-  stepPhase(world, cfg, events);
+  stepPhase(world, cfg, map, events);
 
   return events;
 }

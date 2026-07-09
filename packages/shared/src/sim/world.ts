@@ -39,10 +39,16 @@ export const ATK_WINDUP = 1;
 export const ATK_ACTIVE = 2;
 export const ATK_RECOVERY = 3;
 
-export type MatchPhase = 0 | 1 | 2; // countdown | live | ended
-export const PHASE_COUNTDOWN = 0;
-export const PHASE_LIVE = 1;
-export const PHASE_ENDED = 2;
+// Match phases, in order. Placement (M4): squads spawn at their map corners
+// and claim keep sites; countdown: free-move warmup at the claimed keeps'
+// final layout is pending — goLive teleports and hard-resets. Zero-duration
+// phases collapse within a single stepPhase call, so smoke configs with
+// placement 0 + countdown 0 go live on tick 1 exactly as before.
+export type MatchPhase = 0 | 1 | 2 | 3; // placement | countdown | live | ended
+export const PHASE_PLACEMENT = 0;
+export const PHASE_COUNTDOWN = 1;
+export const PHASE_LIVE = 2;
+export const PHASE_ENDED = 3;
 
 export interface Player {
   id: PlayerId;
@@ -113,6 +119,11 @@ export interface Player {
   prevBuildB: number;
   /** Cooldown ticks until the next wall placement. */
   buildCd: number;
+  /** Keep-site claim channel progress in ticks (placement phase only). */
+  claimTicks: number;
+  /** Site index the claim channel is targeting (-1 idle). Progress is per
+   *  site: retargeting resets claimTicks (see claims.ts). */
+  claimSiteIdx: number;
 
   /** Last applied input; server reuses it when a fresh one hasn't arrived (TCP delay). */
   input: InputCmd;
@@ -136,9 +147,13 @@ export interface Projectile {
 
 export interface SquadState {
   id: number;
-  /** This squad's keep site (moves on an emergency rebuild). */
+  /** This squad's keep site (moves on an emergency rebuild). PROVISIONAL
+   *  (nearest-to-spawn) until the placement phase finalizes it. */
   keepX: number;
   keepY: number;
+  /** Index into map.keeps once claimed/assigned; -1 while placement is open.
+   *  Inert after the placement phase (rebuilds move keepX/Y, not this). */
+  claimedSite: number;
   /** Structure hit points; <= 0 means destroyed (no respawns, vault spilled). */
   keepHp: number;
   /** Emergency rebuilds remaining this match (starts at 1). */
@@ -249,6 +264,7 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
       id: i,
       keepX: keeps[i]!.x,
       keepY: keeps[i]!.y,
+      claimedSite: -1,
       keepHp: cfg.keep.maxHp,
       rebuildsLeft: 1,
       eliminated: false,
@@ -264,8 +280,8 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
     tick: 0,
     rng: createRng(seed),
     nextId: 1,
-    phase: PHASE_COUNTDOWN,
-    phaseEndsTick: secToTicks(cfg, cfg.match.countdownSec),
+    phase: PHASE_PLACEMENT,
+    phaseEndsTick: secToTicks(cfg, cfg.match.placementSec),
     winners: [],
     goldMinted: 0,
     players: new Map(),
@@ -338,6 +354,8 @@ export function spawnPlayer(
     prevBombB: 0,
     prevBuildB: 0,
     buildCd: 0,
+    claimTicks: 0,
+    claimSiteIdx: -1,
     input: { ...IDLE_INPUT },
   };
   world.players.set(p.id, p);
@@ -389,6 +407,8 @@ export function serializeWorld(world: World): string {
     pbb: p.prevBombB,
     pvb: p.prevBuildB,
     blc: p.buildCd,
+    ct: p.claimTicks,
+    csi: p.claimSiteIdx,
   }));
   const projectiles = [...world.projectiles.values()].map((pr) => ({
     id: pr.id,
@@ -435,6 +455,7 @@ export function serializeWorld(world: World): string {
     id: s.id,
     kx: s.keepX,
     ky: s.keepY,
+    cs: s.claimedSite,
     kh: s.keepHp,
     rb: s.rebuildsLeft,
     el: s.eliminated,

@@ -53,6 +53,10 @@ export type SimEvent =
     }
   | { k: 'bombEnd'; tk: number; id: number; squad: number; x: number; y: number }
   // -- keeps
+  /** GLOBAL: a squad claimed its keep site (placement phase; `by` null = the
+   *  deadline auto-assign). Same announce posture as keepRebuilt; the doc's
+   *  "enemy keep locations hidden" tightens via M5 ghosting, not here. */
+  | { k: 'keepClaimed'; tk: number; squad: number; x: number; y: number; by: number | null }
   /** Under-attack alarm — sent to the OWNING squad (throttled); positional otherwise. */
   | { k: 'keepHit'; tk: number; squad: number; hp: number; x: number; y: number }
   /** GLOBAL: a keep fell, its vault is on the ground — the map-level plunder bell. */

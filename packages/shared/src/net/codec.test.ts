@@ -23,9 +23,10 @@ const SERVER_SAMPLES: ServerMsg[] = [
     tick: 42,
     tickRate: 30,
     snapRate: 15,
-    phase: 1,
+    phase: 2,
     phaseEndsTick: 14400,
     roster: [{ id: 3, squad: 1, name: 'Brandon', bot: false }],
+    keeps: [{ squad: 1, x: 78.5, y: 36.5, hp: 1200 }],
     resume: 'f00f-1234-token',
   },
   {
@@ -56,6 +57,7 @@ const SERVER_SAMPLES: ServerMsg[] = [
       bombs: 2,
       bombCd: 12,
       supply: 160,
+      claimTicks: 0,
     },
     ents: [
       { i: 4, x: 10.25, y: 20.5, ax: 0.6, ay: 0.8, hp: 90, cls: 'fighter', st: 1 },

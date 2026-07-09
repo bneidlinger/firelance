@@ -80,7 +80,12 @@ export function decodeServerMsg(data: unknown): DecodeResult<ServerMsg> {
   // Server is trusted by clients; structural spot-checks only.
   switch (m.t) {
     case 'welcome':
-      if (!isFiniteNumber(m.playerId) || !isFiniteNumber(m.tick) || !Array.isArray(m.roster)) {
+      if (
+        !isFiniteNumber(m.playerId) ||
+        !isFiniteNumber(m.tick) ||
+        !Array.isArray(m.roster) ||
+        !Array.isArray(m.keeps)
+      ) {
         return { ok: false, error: 'welcome: bad shape' };
       }
       break;

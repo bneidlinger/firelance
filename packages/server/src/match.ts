@@ -3,7 +3,14 @@ import { configHash, type ClassId, type GameConfig } from '@shared/config';
 import { secToTicks } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import { decodeClientMsg, encodeMsg } from '@shared/net/codec';
-import type { HelloMsg, NetEvent, RosterEntry, ServerMsg, WelcomeMsg } from '@shared/net/messages';
+import type {
+  HelloMsg,
+  KeepSnap,
+  NetEvent,
+  RosterEntry,
+  ServerMsg,
+  WelcomeMsg,
+} from '@shared/net/messages';
 import { PROTOCOL_VERSION } from '@shared/net/messages';
 import type { SimEvent } from '@shared/sim/events';
 import { stepWorld } from '@shared/sim/step';
@@ -13,6 +20,7 @@ import {
   createWorld,
   IDLE_INPUT,
   PHASE_ENDED,
+  PHASE_PLACEMENT,
   SPAWN_OFFSETS,
   spawnPlayer,
 } from '@shared/sim/world';
@@ -225,7 +233,9 @@ export class Match {
     return player.id;
   }
 
-  /** Players spawn at their squad keep (respawn point) with a small offset. */
+  /** Players spawn at their squad keep (respawn point) with a small offset —
+   *  except during the placement phase, when keeps don't exist yet: squads
+   *  muster at their map spawn corner and walk out to claim a site. */
   private spawnSeatPlayer(
     squad: number,
     name: string,
@@ -234,6 +244,10 @@ export class Match {
     memberIdx: number,
   ): Player {
     const keep = this.worldState.squads[squad]!;
+    const muster =
+      this.worldState.phase === PHASE_PLACEMENT
+        ? (this.map.spawns[squad] ?? this.map.spawns[0]!)
+        : { x: keep.keepX, y: keep.keepY };
     const [ox, oy] = SPAWN_OFFSETS[memberIdx % SPAWN_OFFSETS.length]!;
     return spawnPlayer(
       this.worldState,
@@ -242,12 +256,19 @@ export class Match {
       name,
       bot,
       cls,
-      keep.keepX + ox,
-      keep.keepY + oy,
+      muster.x + ox,
+      muster.y + oy,
     );
   }
 
   private buildWelcome(seat: Seat): WelcomeMsg {
+    // During placement only claimed keeps exist; afterwards every squad's is
+    // final. The client renders exactly this list — it derives nothing.
+    const keeps: KeepSnap[] = [];
+    for (const s of this.worldState.squads) {
+      if (this.worldState.phase === PHASE_PLACEMENT && s.claimedSite < 0) continue;
+      keeps.push({ squad: s.id, x: s.keepX, y: s.keepY, hp: s.keepHp });
+    }
     return {
       t: 'welcome',
       playerId: seat.id,
@@ -261,6 +282,7 @@ export class Match {
       phase: this.worldState.phase,
       phaseEndsTick: this.worldState.phaseEndsTick,
       roster: this.roster(),
+      keeps,
       resume: seat.token,
     };
   }
@@ -456,6 +478,7 @@ export class Match {
         case 'banked':
         case 'keepDestroyed': // the map-level plunder bell (doc: major event)
         case 'keepRebuilt':
+        case 'keepClaimed': // placement news — same posture as keepRebuilt
         case 'eliminated':
           out.push(ev);
           break;

@@ -6,7 +6,7 @@ import { getConfigPreset, getKit, type GameConfig } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import { isWalkBlocked } from '@shared/map/types';
 import type { SimEvent } from '@shared/sim/events';
-import { hashWorld } from '@shared/sim/world';
+import { hashWorld, PHASE_PLACEMENT } from '@shared/sim/world';
 import { totalGoldInWorld } from '@shared/sim/systems/economy';
 import { Match } from './match';
 import { replayToHash } from './replay';
@@ -188,6 +188,7 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
   const ticks = Math.round(opts.simSeconds * cfg.tick.simHz);
   const maxTtlTicks = Math.ceil(cfg.classes.ranger.bow!.ttlSec * cfg.tick.simHz) + 1;
   const maxChannelTicks = Math.ceil(cfg.banking.bankChannelSec * cfg.tick.simHz) + 1;
+  const maxClaimTicks = Math.ceil(cfg.keep.claimChannelSec * cfg.tick.simHz) + 1;
   let lastSeed = match.seed;
   let ticksInCurrentWorld = 0;
 
@@ -224,6 +225,9 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
         }
         if (p.bankTicks < 0 || p.bankTicks > maxChannelTicks) {
           violations.push(`tick ${w.tick}: player ${p.id} bankTicks ${p.bankTicks} out of range`);
+        }
+        if (p.claimTicks < 0 || p.claimTicks > maxClaimTicks) {
+          violations.push(`tick ${w.tick}: player ${p.id} claimTicks ${p.claimTicks} out of range`);
         }
         if (!p.alive && p.carried > 0) {
           violations.push(`tick ${w.tick}: dead player ${p.id} still carrying ${p.carried}`);
@@ -262,6 +266,20 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
           violations.push(
             `tick ${w.tick}: squad ${s.id} supply ${s.supply} exceeds minted ${s.supplyMinted}`,
           );
+        }
+        // Placement contract: past the placement phase every squad has a
+        // claimed site, and no two squads ever share one.
+        if (w.phase !== PHASE_PLACEMENT && s.claimedSite < 0) {
+          violations.push(`tick ${w.tick}: squad ${s.id} unclaimed after placement`);
+        }
+        if (s.claimedSite >= 0) {
+          for (const o of w.squads) {
+            if (o.id !== s.id && o.claimedSite === s.claimedSite) {
+              violations.push(
+                `tick ${w.tick}: squads ${s.id}/${o.id} share claimed site ${s.claimedSite}`,
+              );
+            }
+          }
         }
       }
       const maxFlight = Math.ceil(cfg.firebomb.flightSec * cfg.tick.simHz) + 1;

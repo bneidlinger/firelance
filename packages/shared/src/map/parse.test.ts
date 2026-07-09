@@ -53,16 +53,45 @@ describe('map parser', () => {
 });
 
 describe('scrim_small', () => {
-  it('is 96x96 with 4 spawns, 4 keep sites, 2 towns (one per river side)', () => {
+  it('is 96x96 with 4 spawns, 7 keep sites, 2 towns (one per river side)', () => {
     expect(scrimSmall.width).toBe(96);
     expect(scrimSmall.height).toBe(96);
     expect(scrimSmall.spawns).toHaveLength(4);
-    expect(scrimSmall.keeps).toHaveLength(4);
+    // M4 placement: 4 corner defaults + near-town/bridge/forest-edge choices.
+    expect(scrimSmall.keeps).toHaveLength(7);
+    const has = (x: number, y: number): boolean =>
+      scrimSmall.keeps.some((k) => k.x === x + 0.5 && k.y === y + 0.5);
+    expect(has(44, 28)).toBe(true); // near the north town
+    expect(has(24, 52)).toBe(true); // south of the west bridge
+    expect(has(57, 71)).toBe(true); // south forest edge
     expect(scrimSmall.towns).toHaveLength(2);
     // Bank runs need a route CHOICE: one town north of the river, one south.
     const ys = scrimSmall.towns.map((t) => t.y).sort((a, b) => a - b);
     expect(ys[0]).toBeLessThan(46);
     expect(ys[1]).toBeGreaterThan(49);
+  });
+
+  it('the 3 new choice sites never steal a squad spawn-corner default', () => {
+    // Placement auto-assign must reproduce the M0–M3 layout when nobody
+    // claims: each spawn's nearest site is still its original corner keep.
+    const corners = [
+      { x: 16.5, y: 36.5 },
+      { x: 78.5, y: 36.5 },
+      { x: 16.5, y: 60.5 },
+      { x: 80.5, y: 56.5 },
+    ];
+    scrimSmall.spawns.forEach((spawn, squad) => {
+      let best = { x: 0, y: 0 };
+      let bestD = Number.POSITIVE_INFINITY;
+      for (const k of scrimSmall.keeps) {
+        const d = (k.x - spawn.x) ** 2 + (k.y - spawn.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = k;
+        }
+      }
+      expect([best.x, best.y]).toEqual([corners[squad]!.x, corners[squad]!.y]);
+    });
   });
 
   it('river blocks walking but bridges are walkable', () => {

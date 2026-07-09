@@ -1,7 +1,7 @@
 import { configHash, getConfigPreset, getKit, secToTicks, type GameConfig } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
-import type { NetEvent, RosterEntry, ServerMsg, YouSnap } from '@shared/net/messages';
+import type { KeepSnap, NetEvent, RosterEntry, ServerMsg, YouSnap } from '@shared/net/messages';
 import {
   ST_ACTIVE,
   ST_BANKING,
@@ -15,10 +15,9 @@ import {
   ATK_WINDUP,
   BTN_BLOCK,
   BTN_FIRE,
-  PHASE_COUNTDOWN,
   PHASE_ENDED,
   PHASE_LIVE,
-  assignKeeps,
+  PHASE_PLACEMENT,
 } from '@shared/sim/world';
 import { sfx, unlockAudio } from './audio/sfx';
 import { InputState } from './input/input';
@@ -78,9 +77,11 @@ interface GameState {
   /** Structure occupancy from the newest snapshot — feeds prediction AND the
    *  fog mask so walls block both exactly like they do server-side. */
   structOcc: ReadonlySet<number> | null;
-  /** Own squad's keep site (moves on an emergency rebuild). */
-  ownKeep: { x: number; y: number };
-  /** Live keep intel per squad: position (rebuilds move it) + public hp. */
+  /** Own squad's keep site (claims/rebuilds move it; null until claimed). */
+  ownKeep: { x: number; y: number } | null;
+  /** Live keep intel per squad: position (claims/rebuilds move it) + public
+   *  hp. Fed by welcome.keeps + keepClaimed/keepRebuilt events — the client
+   *  derives nothing (placement made local derivation wrong). */
   keepInfo: Map<number, { x: number; y: number; hp: number }>;
   /** Own squad's vault detail from the last score (squad-private fields). */
   ownGold: { bk: number; g: number; wd: number; rb: number };
@@ -354,6 +355,26 @@ function handleEvent(ev: NetEvent): void {
       }
       break;
     }
+    case 'keepClaimed': {
+      game.keepInfo.set(ev.squad, { x: ev.x, y: ev.y, hp: game.cfg.keep.maxHp });
+      game.keeps.update(ev.squad, ev.x, ev.y, game.cfg.keep.maxHp);
+      const names = ['Red', 'Blue', 'Green', 'Gold'];
+      game.hud.news(
+        `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">${names[ev.squad]} squad</span> raised their banner 🏰`,
+      );
+      if (ev.squad === game.ownSquad) {
+        game.ownKeep = { x: ev.x, y: ev.y };
+        sfx('rebuilt');
+        game.hud.toast(
+          ev.by === game.ownId
+            ? 'Keep site claimed — this is home now'
+            : ev.by === null
+              ? 'Keep site assigned — this is home now'
+              : 'Your squad claimed a keep site',
+        );
+      }
+      break;
+    }
     case 'keepRebuilt': {
       const info = game.keepInfo.get(ev.squad);
       if (info) {
@@ -429,6 +450,7 @@ async function setupScene(
     tickRate: number;
     phase: number;
     phaseEndsTick: number;
+    keeps: KeepSnap[];
   },
 ): Promise<void> {
   if (!scene) {
@@ -447,9 +469,8 @@ async function setupScene(
   const hud = game?.hud ?? new Hud(cfg);
   hud.reset();
 
-  const keepSites = assignKeeps(map, cfg.match.squads);
   const keepInfo = new Map<number, { x: number; y: number; hp: number }>();
-  keepSites.forEach((k, squad) => keepInfo.set(squad, { x: k.x, y: k.y, hp: cfg.keep.maxHp }));
+  for (const k of welcome.keeps) keepInfo.set(k.squad, { x: k.x, y: k.y, hp: k.hp });
 
   game?.bombs.clear();
   game?.keeps.clear();
@@ -473,7 +494,9 @@ async function setupScene(
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
     structOcc: null,
-    ownKeep: keepSites[welcome.squadId] ?? { x: 0, y: 0 },
+    ownKeep: keepInfo.has(welcome.squadId)
+      ? { x: keepInfo.get(welcome.squadId)!.x, y: keepInfo.get(welcome.squadId)!.y }
+      : null,
     keepInfo,
     ownGold: { bk: 0, g: 0, wd: 0, rb: 1 },
     ownEliminated: false,
@@ -614,7 +637,7 @@ function frame(now: number): void {
       fps: fps.toFixed(0),
       rtt: `${conn.rttMs.toFixed(0)}ms (+${fakelagMs} fake)`,
       tick: `est ${estTick.toFixed(1)} render ${renderTick.toFixed(1)}`,
-      phase: ['countdown', 'live', 'ended'][game.phase] ?? '?',
+      phase: ['placement', 'countdown', 'live', 'ended'][game.phase] ?? '?',
       snapsBuf: interp.stats.bufferedSnaps,
       starved: interp.stats.starvedFrames,
       predict: noPredict ? 'OFF (?nopredict)' : 'on',
@@ -636,13 +659,23 @@ let latestYouHp = 0;
  * in exile — the rebuild ritual at empty keep sites.
  */
 function updatePrompt(ownPos: { x: number; y: number } | null): void {
-  if (!game || !ownPos || game.phase !== PHASE_LIVE || !latestYou?.alive) {
+  if (!game || !ownPos || !latestYou?.alive) {
     game?.hud.prompt(null);
     return;
   }
   const R = game.cfg.banking.interactRadius;
   const near = (p: { x: number; y: number }): boolean =>
     Math.hypot(p.x - ownPos.x, p.y - ownPos.y) <= R + 0.6;
+
+  // ---- placement phase: the claim tutorial, in place.
+  if (game.phase === PHASE_PLACEMENT) {
+    game.hud.prompt(placementPrompt(ownPos, near));
+    return;
+  }
+  if (game.phase !== PHASE_LIVE) {
+    game.hud.prompt(null);
+    return;
+  }
   const ownKeepAlive = (game.keepInfo.get(game.ownSquad)?.hp ?? 1) > 0;
 
   let html: string | null = null;
@@ -669,7 +702,7 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
     }
   }
 
-  if (!html && ownKeepAlive && near(game.ownKeep)) {
+  if (!html && ownKeepAlive && game.ownKeep && near(game.ownKeep)) {
     if (game.ownGold.wd > 0) {
       html =
         `<span class="key">E</span> load gold — ${game.ownGold.wd}g withdrawable` +
@@ -704,6 +737,39 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
       `<div class="sub">aim where you want it · ${Math.floor(latestYou.supply)} supply</div>`;
   }
   game.hud.prompt(html);
+}
+
+/**
+ * The placement-phase prompt: teach the claim where it happens. A site is
+ * "claimed" when any squad's keep marker sits on it (keepInfo is fed by the
+ * global keepClaimed events, so this is authoritative).
+ */
+function placementPrompt(
+  ownPos: { x: number; y: number },
+  near: (p: { x: number; y: number }) => boolean,
+): string | null {
+  if (!game || !latestYou) return null;
+  if (game.keepInfo.has(game.ownSquad)) {
+    return `Keep claimed — the match starts when the timer ends<div class="sub">walk the ground you'll defend</div>`;
+  }
+  const claimed = (site: { x: number; y: number }): boolean => {
+    for (const k of game!.keepInfo.values()) {
+      if (Math.hypot(k.x - site.x, k.y - site.y) < 1) return true;
+    }
+    return false;
+  };
+  for (const site of game.map.keeps) {
+    if (!near(site)) continue;
+    if (claimed(site)) {
+      return `Site taken<div class="sub">another squad raised their banner here first</div>`;
+    }
+    const secs = game.cfg.keep.claimChannelSec;
+    return latestYou.claimTicks > 0
+      ? `Claiming this site…<div class="sub">stand still and hold — first squad to finish wins it</div>`
+      : `<span class="key">E</span> claim this keep site` +
+          `<div class="sub">stand still and hold — ${secs}s · every site is a tradeoff</div>`;
+  }
+  return `Pick a keep site — walk to a ring and hold <span class="key">E</span><div class="sub">unclaimed squads get assigned when the timer ends</div>`;
 }
 
 function sampleAndSendInput(now: number): void {
@@ -835,6 +901,7 @@ window.__fl = {
           bombs: latestYou.bombs,
           bombCd: latestYou.bombCd,
           supply: latestYou.supply,
+          claimTicks: latestYou.claimTicks,
         }
       : null,
     banking: game

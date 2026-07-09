@@ -2,7 +2,7 @@ import type { ClassId, GameConfig } from '@shared/config';
 import { getKit, secToTicks } from '@shared/config';
 import { bountyTier, carrySpeedFactor } from '@shared/sim/systems/economy';
 import type { RosterEntry, ScoreMsg, YouSnap } from '@shared/net/messages';
-import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE } from '@shared/sim/world';
+import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, PHASE_PLACEMENT } from '@shared/sim/world';
 
 // DOM HUD: timer + banked-gold standings, bounty board, killfeed with payouts
 // and dropped-sack drama, own hp/dash/bounty/carry bar, deposit channel bar,
@@ -89,13 +89,20 @@ export class Hud {
       carry.style.display = 'none';
     }
 
-    // Channel progress bar: deposit (gold) or rebuild (red) — never both.
+    // Channel progress bar: deposit (gold), claim (green), or rebuild (red) —
+    // the phases guarantee at most one runs at a time.
     const wrap = el('bankwrap');
     if (you.bankTicks > 0) {
       const total = secToTicks(this.cfg, this.cfg.banking.bankChannelSec);
       const fill = el('bankfill');
       fill.style.width = `${Math.min(100, (you.bankTicks / total) * 100)}%`;
       fill.style.background = '#f2d68c';
+      wrap.style.display = 'block';
+    } else if (you.claimTicks > 0) {
+      const total = secToTicks(this.cfg, this.cfg.keep.claimChannelSec);
+      const fill = el('bankfill');
+      fill.style.width = `${Math.min(100, (you.claimTicks / total) * 100)}%`;
+      fill.style.background = '#8fae6a';
       wrap.style.display = 'block';
     } else if (you.rebuildTicks > 0) {
       const total = secToTicks(this.cfg, this.cfg.keep.rebuildChannelSec);
@@ -254,7 +261,12 @@ export class Hud {
   timer(phase: number, phaseEndsTick: number, estTick: number): void {
     const t = el('timer');
     const remain = Math.max(0, (phaseEndsTick - estTick) / this.cfg.tick.simHz);
-    if (phase === PHASE_COUNTDOWN) {
+    if (phase === PHASE_PLACEMENT) {
+      const m = Math.floor(remain / 60);
+      const s = Math.floor(remain % 60);
+      t.textContent = `CLAIM A KEEP ${m}:${s.toString().padStart(2, '0')}`;
+      t.style.color = '#8fae6a';
+    } else if (phase === PHASE_COUNTDOWN) {
       t.textContent = `LIVE IN ${Math.ceil(remain)}`;
       t.style.color = '#e0b95e';
     } else if (phase === PHASE_LIVE) {

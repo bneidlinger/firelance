@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 // ---------------------------------------------------------------- client → server
 
@@ -58,6 +58,17 @@ export interface RosterEntry {
   bot: boolean;
 }
 
+/** A squad keep as of the welcome: authoritative position + hp. During the
+ *  placement phase only CLAIMED squads appear (the rest have no keep yet);
+ *  from the countdown on, every squad has an entry. Replaces the client
+ *  re-deriving keep sites itself — claims made that derivation wrong. */
+export interface KeepSnap {
+  squad: number;
+  x: number;
+  y: number;
+  hp: number;
+}
+
 export interface WelcomeMsg {
   t: 'welcome';
   playerId: number;
@@ -71,6 +82,8 @@ export interface WelcomeMsg {
   phase: number;
   phaseEndsTick: number;
   roster: RosterEntry[];
+  /** Claimed/final keep positions — see KeepSnap for the placement-phase rule. */
+  keeps: KeepSnap[];
   /** Present this in a future hello to reclaim this seat (refresh survival). */
   resume: string;
 }
@@ -167,6 +180,9 @@ export interface YouSnap {
   bombCd: number;
   /** Your squad's build-supply pool (drives the build HUD; cap is cfg.build.supplyCap). */
   supply: number;
+  /** Keep-site claim channel progress in ticks (placement phase; 0 = idle);
+   *  pairs with cfg.keep.claimChannelSec. */
+  claimTicks: number;
 }
 
 export interface SnapMsg {
