@@ -8,6 +8,7 @@ import {
   ST_BLOCKING,
   ST_CARRYING,
   ST_DASHING,
+  ST_ROOTED,
   ST_WINDUP,
 } from '@shared/net/messages';
 import type { RichEnt } from '../net/interpolation';
@@ -181,6 +182,18 @@ export class EntityLayer {
       // Deposit channel in progress — the "interrupt me!" beacon.
       const pulse = 0.55 + 0.35 * Math.sin(performance.now() / 120);
       g.circle(0, 0, r + 6).stroke({ width: 2.5, color: 0xf2d68c, alpha: pulse });
+    }
+    if (e.st & ST_ROOTED) {
+      // Snared: jagged shackle at the feet. Public state — a pinned target is
+      // an invitation for BOTH sides.
+      const rr = r + 2;
+      for (let i = 0; i < 6; i++) {
+        const a0 = (i / 6) * Math.PI * 2;
+        const a1 = ((i + 0.5) / 6) * Math.PI * 2;
+        g.moveTo(rr * Math.cos(a0), rr * Math.sin(a0))
+          .lineTo(rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1))
+          .stroke({ width: 2, color: 0xd8543e, alpha: 0.9 });
+      }
     }
   }
 

@@ -66,6 +66,7 @@ function snap(brain: BotBrain, tick: number, enemySt = 0): void {
       bombCd: 0,
       supply: 0,
       claimTicks: 0,
+      rootTicks: 0,
     },
     ents: [{ i: 2, x: 26.5, y: 20.5, ax: 1, ay: 0, hp: 90, cls: 'ranger', st: enemySt }],
     sacks,

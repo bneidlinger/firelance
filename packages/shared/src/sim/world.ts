@@ -16,7 +16,8 @@ export interface InputCmd {
   ax: number;
   ay: number;
   /** Button bitmask: 1 fire, 2 block, 4 dash, 8 interact, 16 bomb,
-   *  32 build wall, 64 build gate, 128 build tower (gate/tower Engineer-only). */
+   *  32 build wall, 64 build gate, 128 build tower, 256 build trap
+   *  (gate/tower/trap Engineer-only). */
   b: number;
 }
 
@@ -28,14 +29,33 @@ export const BTN_BOMB = 16;
 export const BTN_BUILD = 32;
 export const BTN_BUILD_GATE = 64;
 export const BTN_BUILD_TOWER = 128;
+export const BTN_BUILD_TRAP = 256;
+/** Every defined button — THE server-side sanitize mask. A new BTN_* must be
+ *  OR'd in here or the trust boundary silently strips it (the M4 s4 trap
+ *  button shipped dead for an hour because a hardcoded 0xff didn't cover
+ *  bit 9 — never again). */
+export const BTN_ALL =
+  BTN_FIRE |
+  BTN_BLOCK |
+  BTN_DASH |
+  BTN_INTERACT |
+  BTN_BOMB |
+  BTN_BUILD |
+  BTN_BUILD_GATE |
+  BTN_BUILD_TOWER |
+  BTN_BUILD_TRAP;
 
 // Structure kinds (M4): wall blocks everyone; gate is a door for the owning
 // squad's BODIES only (vision/arrows blocked for all); tower is a static
-// extra viewer for its squad — information, never damage. Traps land in s4.
+// extra viewer for its squad — information, never damage. Trap (s4) is the
+// inverse of all three: blocks NOTHING (movement, vision, arrows), is never
+// serialized to enemy squads, and consumes itself to snare the first enemy
+// who steps on it once armed.
 export const STRUCT_WALL = 0;
 export const STRUCT_GATE = 1;
 export const STRUCT_TOWER = 2;
-export type StructureKind = 0 | 1 | 2;
+export const STRUCT_TRAP = 3;
+export type StructureKind = 0 | 1 | 2 | 3;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 
@@ -78,6 +98,9 @@ export interface Player {
   dashCd: number;
   /** Previous tick's button mask — dash is edge-triggered inside the kernel. */
   prevB: number;
+  /** Ticks left snared by a trap (0 = free). The kernel zeroes walk speed and
+   *  blocks dash starts while set — predicted, so the snare doesn't rubber-band. */
+  rootTicks: number;
 
   // ---- combat
   hp: number;
@@ -205,15 +228,20 @@ export interface LootSack {
 }
 
 /** A placed structure occupying one grid tile (tx,ty); center at (tx+.5, ty+.5).
- *  Blocks movement and vision while hp > 0; leaves the world when it hits 0. */
+ *  Walls/gates/towers block movement and vision while hp > 0; traps block
+ *  nothing. Leaves the world when hp hits 0 (or, for traps, on trigger). */
 export interface Structure {
   id: number;
   kind: StructureKind;
   squad: number;
+  /** Who placed it — trap kills credit the builder (kill gold + bounty). */
+  by: PlayerId;
   tx: number;
   ty: number;
   hp: number;
   maxHp: number;
+  /** Tick it was placed — traps arm cfg.build.trap.armSec after this. */
+  bornTick: number;
 }
 
 export interface World {
@@ -335,6 +363,7 @@ export function spawnPlayer(
     dashDy: 0,
     dashCd: 0,
     prevB: 0,
+    rootTicks: 0,
     hp: getKit(cfg, cls).maxHp,
     alive: true,
     respawnAtTick: 0,
@@ -388,6 +417,7 @@ export function serializeWorld(world: World): string {
     ddy: p.dashDy,
     dcd: p.dashCd,
     pb: p.prevB,
+    rot: p.rootTicks,
     hp: p.hp,
     al: p.alive,
     rat: p.respawnAtTick,
@@ -452,10 +482,12 @@ export function serializeWorld(world: World): string {
     id: s.id,
     k: s.kind,
     sq: s.squad,
+    by: s.by,
     tx: s.tx,
     ty: s.ty,
     hp: s.hp,
     mh: s.maxHp,
+    bt: s.bornTick,
   }));
   const squads = world.squads.map((s) => ({
     id: s.id,

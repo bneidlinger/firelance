@@ -23,6 +23,7 @@ import {
   PHASE_PLACEMENT,
   SPAWN_OFFSETS,
   spawnPlayer,
+  STRUCT_TRAP,
 } from '@shared/sim/world';
 import { removePlayerSpillingGold, withdrawableGold } from '@shared/sim/systems/economy';
 import { acceptInput, createInputSlot, type InputSlot } from './inputs';
@@ -486,10 +487,25 @@ export class Match {
           if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
           break;
         case 'structBuilt':
+          // A trap going up is squad-secret, full stop — even eyes on the tile
+          // see a kneeling engineer, not what they buried. Everything else is
+          // positional: own always; enemy (design §12.1 hidden) with eyes on.
+          if (ev.kind === STRUCT_TRAP ? ev.squad === squadId : ev.squad === squadId || visible(ev.x, ev.y)) {
+            out.push(ev);
+          }
+          break;
         case 'structDestroyed':
         case 'structRepaired':
           // Positional: your own building is always yours to see; enemy building
-          // (design §12.1 hidden) only with eyes on the tile.
+          // (design §12.1 hidden) only with eyes on the tile. A DESTROYED trap
+          // is deliberately positional — clearing suspicious ground with a bomb
+          // should tell the bomber it paid off.
+          if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
+          break;
+        case 'trapTriggered':
+          // The owner always hears their tripwire (it doubles as an alarm);
+          // everyone else needs eyes on the snap — including the victim's
+          // squadmates, who otherwise learn it from the victim's own eyes.
           if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);
           break;
         case 'keepHit':
@@ -613,6 +629,10 @@ export class Match {
       const memberIdx = memberCount[seat.squad]!++;
       const player = this.spawnSeatPlayer(seat.squad, seat.name, seat.bot, seat.cls, memberIdx);
       seat.id = player.id;
+      // Fresh input epoch — the SAME contract as the resume path: a welcome
+      // tells the client it may restart seq at 1. A stale high-water slot
+      // here would silently discard every input from a client that reset.
+      seat.slot = createInputSlot();
       this.seats.set(player.id, seat);
       this.recorderState?.recordJoin(player);
     }

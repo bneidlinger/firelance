@@ -6,6 +6,7 @@ import {
   BTN_BUILD,
   BTN_BUILD_GATE,
   BTN_BUILD_TOWER,
+  BTN_BUILD_TRAP,
   BTN_DASH,
   BTN_FIRE,
   BTN_INTERACT,
@@ -36,6 +37,7 @@ export class InputState {
       if (e.code === 'KeyB') this.latched |= BTN_BUILD; // tap-to-build a wall (edge-triggered)
       if (e.code === 'KeyG') this.latched |= BTN_BUILD_GATE; // Engineer: gate
       if (e.code === 'KeyT') this.latched |= BTN_BUILD_TOWER; // Engineer: watchtower
+      if (e.code === 'KeyV') this.latched |= BTN_BUILD_TRAP; // Engineer: trap
       if (e.code === 'Digit1') this.pendingClass = 'fighter';
       if (e.code === 'Digit2') this.pendingClass = 'ranger';
       if (e.code === 'Digit3') this.pendingClass = 'engineer';
@@ -83,6 +85,7 @@ export class InputState {
     if (this.isDown('KeyB')) b |= BTN_BUILD;
     if (this.isDown('KeyG')) b |= BTN_BUILD_GATE;
     if (this.isDown('KeyT')) b |= BTN_BUILD_TOWER;
+    if (this.isDown('KeyV')) b |= BTN_BUILD_TRAP;
     return { mx, my, b };
   }
 

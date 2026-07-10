@@ -17,6 +17,11 @@ import { BTN_BLOCK, BTN_DASH } from '../world';
 // same way — callers derive it via carrySpeedFactor(cfg, carried) from their
 // own authoritative view (server: player state; client: acked `you`). Walk
 // speed only; dash displacement stays full-strength on purpose.
+// M4 s4: a trap root pins the victim, so rootTicks lives IN the kernel too —
+// it decrements here (server and replay agree tick-for-tick), zeroes walk
+// velocity, and blocks dash starts. The trigger itself is server-authoritative
+// (you can't predict an invisible trap); the one-time correction it causes is
+// the trap going off, not a prediction bug.
 
 export interface MoveState {
   x: number;
@@ -31,10 +36,23 @@ export interface MoveState {
   dashCd: number;
   /** Previous tick's buttons — dash triggers on the rising edge only. */
   prevB: number;
+  /** Ticks left snared (0 = free): walk speed zero, dash starts blocked. */
+  rootTicks: number;
 }
 
 export function createMoveState(x: number, y: number): MoveState {
-  return { x, y, vx: 0, vy: 0, dashTicks: 0, dashDx: 0, dashDy: 0, dashCd: 0, prevB: 0 };
+  return {
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    dashTicks: 0,
+    dashDx: 0,
+    dashDy: 0,
+    dashCd: 0,
+    prevB: 0,
+    rootTicks: 0,
+  };
 }
 
 /** Everything class-dependent the kernel needs, precomputed to ticks. */
@@ -89,14 +107,19 @@ export function stepMovement(
 
   // Cooldowns tick down unconditionally.
   if (s.dashCd > 0) s.dashCd--;
+  // Rooted THIS tick (checked before the decrement so a 1-tick root roots one
+  // tick); the countdown runs in-kernel so client replay stays bit-exact.
+  const rooted = s.rootTicks > 0;
+  if (rooted) s.rootTicks--;
 
-  // Dash trigger: rising edge of the dash button, off cooldown, not mid-dash.
-  // Direction = movement input, falling back to aim when standing still.
+  // Dash trigger: rising edge of the dash button, off cooldown, not mid-dash,
+  // not snared (a root pins your feet — no dashing out of it).
   if (
     (input.b & BTN_DASH) !== 0 &&
     (s.prevB & BTN_DASH) === 0 &&
     s.dashCd <= 0 &&
-    s.dashTicks <= 0
+    s.dashTicks <= 0 &&
+    !rooted
   ) {
     let dx = input.mx;
     let dy = input.my;
@@ -114,7 +137,12 @@ export function stepMovement(
     }
   }
 
-  if (s.dashTicks > 0) {
+  if (rooted) {
+    // Snared: feet pinned. Root outranks an in-flight dash (the trigger also
+    // clears dashTicks server-side; this keeps replay identical regardless).
+    s.vx = 0;
+    s.vy = 0;
+  } else if (s.dashTicks > 0) {
     // Mid-dash: fixed displacement along the locked direction; input ignored.
     s.dashTicks--;
     s.vx = s.dashDx * params.dashSpeed;

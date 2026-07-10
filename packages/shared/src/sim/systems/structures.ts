@@ -9,11 +9,14 @@ import {
   BTN_BUILD,
   BTN_BUILD_GATE,
   BTN_BUILD_TOWER,
+  BTN_BUILD_TRAP,
   PHASE_LIVE,
   STRUCT_GATE,
   STRUCT_TOWER,
+  STRUCT_TRAP,
   STRUCT_WALL,
 } from '../world';
+import { applyDamage } from './combat';
 
 // Structures: placeable, destroyable, grid-occupying entities. M4 s1 shipped
 // walls; s3 adds the Engineer's gate (a door for the owning squad's bodies —
@@ -23,6 +26,11 @@ import {
 //   moveOccupancyFor   — per squad; excludes that squad's own living gates.
 // Both are derived fresh from world.structures, and the client rebuilds the
 // identical sets from its snapshot, so gate-walking predicts bit-exactly.
+// s4 traps are in NEITHER set: a trap blocks nothing and occludes nothing —
+// an enemy must be able to walk onto it (that's the whole point), and a tile
+// you can stand on must never eat arrows or sight lines. Keeping traps out of
+// both sets is also what keeps prediction honest: enemies never receive traps
+// in their snapshot, so a trap that collided would desync every client.
 //
 // Build supply is a per-squad resource, NOT gold: it can never touch the score
 // ledger (design §9.4). A living keep trickles it; the keep's death stops the
@@ -31,21 +39,22 @@ import {
 /** The vision/combat blocker layer: tile indices occupied by a live structure. */
 export type Occupancy = ReadonlySet<number>;
 
-/** Rebuild the full occupancy set from every standing structure. */
+/** Rebuild the full occupancy set from every standing structure (traps never
+ *  block or occlude — see the header note). */
 export function buildOccupancy(world: World, width: number): Set<number> {
   const occ = new Set<number>();
   for (const s of world.structures.values()) {
-    if (s.hp > 0) occ.add(s.ty * width + s.tx);
+    if (s.hp > 0 && s.kind !== STRUCT_TRAP) occ.add(s.ty * width + s.tx);
   }
   return occ;
 }
 
-/** Movement blockers for ONE squad: everything except its own living gates.
- *  The gate rule in a single line — a door for your bodies, a wall for theirs. */
+/** Movement blockers for ONE squad: everything except its own living gates
+ *  (a door for your bodies, a wall for theirs) — and traps, which block nobody. */
 export function moveOccupancyFor(world: World, width: number, squad: number): Set<number> {
   const occ = new Set<number>();
   for (const s of world.structures.values()) {
-    if (s.hp <= 0) continue;
+    if (s.hp <= 0 || s.kind === STRUCT_TRAP) continue;
     if (s.kind === STRUCT_GATE && s.squad === squad) continue;
     occ.add(s.ty * width + s.tx);
   }
@@ -66,7 +75,9 @@ export function structKindConfig(cfg: GameConfig, kind: StructureKind): StructKi
     ? cfg.build.wall
     : kind === STRUCT_GATE
       ? cfg.build.gate
-      : cfg.build.tower;
+      : kind === STRUCT_TOWER
+        ? cfg.build.tower
+        : cfg.build.trap;
 }
 
 /**
@@ -136,9 +147,11 @@ export function buildTargetTile(
 
 /**
  * Is the target tile a legal build site (any kind)? Rejects: solid terrain
- * (#/~/OOB), forest, an existing structure, a keep site or town tile, the
- * exclusion zone around any enemy keep, and any tile a living player
- * currently stands on (building must never trap someone).
+ * (#/~/OOB), forest, an existing structure (the direct scan also covers
+ * traps, which the occupancy set deliberately omits), a keep site or town
+ * tile, the exclusion zone around any enemy keep, and any tile a living
+ * player currently stands on (building must never trap someone — walls, that
+ * is; actual traps don't block).
  */
 export function canBuildStructAt(
   world: World,
@@ -153,6 +166,7 @@ export function canBuildStructAt(
   const ti = tileIndex(map, tx, ty);
   if (map.forest[ti] === 1) return false;
   if (occ.has(ti)) return false;
+  if (structureAt(world, tx, ty)) return false;
 
   for (const s of world.squads) {
     if (s.keepHp > 0 && Math.floor(s.keepX) === tx && Math.floor(s.keepY) === ty) return false;
@@ -187,18 +201,63 @@ function structureAt(world: World, tx: number, ty: number): Structure | null {
 }
 
 /** The build intents, in priority order (a tick with several bits pressed
- *  takes the first that's legal). Gate/tower are the Engineer's trade. */
+ *  takes the first that's legal). Gate/tower/trap are the Engineer's trade. */
 const BUILDABLES: ReadonlyArray<{ btn: number; kind: StructureKind; engineerOnly: boolean }> = [
   { btn: BTN_BUILD, kind: STRUCT_WALL, engineerOnly: false },
   { btn: BTN_BUILD_GATE, kind: STRUCT_GATE, engineerOnly: true },
   { btn: BTN_BUILD_TOWER, kind: STRUCT_TOWER, engineerOnly: true },
+  { btn: BTN_BUILD_TRAP, kind: STRUCT_TRAP, engineerOnly: true },
 ];
-const BUILD_MASK = BTN_BUILD | BTN_BUILD_GATE | BTN_BUILD_TOWER;
+const BUILD_MASK = BTN_BUILD | BTN_BUILD_GATE | BTN_BUILD_TOWER | BTN_BUILD_TRAP;
 
 /**
- * Supply generation + build placement + repair. Runs after banking and
- * mutates the passed occupancy set as pieces go up, so two squadmates can't
- * both drop one on the same tile in one tick.
+ * Armed-trap trigger scan: the first enemy standing inside an armed trap's
+ * trigger circle trips it. The trap is CONSUMED (one bite, no damageStructure
+ * detour — a trigger is not a destruction), the victim takes shield-bypassing
+ * damage credited to the builder (an Engineer's trap kill pays like any kill),
+ * and gets rooted — the kernel pins them, prediction included. One victim per
+ * trap: the snare closes on a leg, not a squad.
+ */
+function stepTrapTriggers(world: World, cfg: GameConfig, events: SimEvent[]): void {
+  const trap = cfg.build.trap;
+  const armTicks = secToTicks(cfg, trap.armSec);
+  const rootTicks = secToTicks(cfg, trap.rootSec);
+  const r2 = trap.triggerRadius * trap.triggerRadius;
+  for (const s of world.structures.values()) {
+    if (s.kind !== STRUCT_TRAP || s.hp <= 0) continue;
+    if (world.tick < s.bornTick + armTicks) continue;
+    const cx = s.tx + 0.5;
+    const cy = s.ty + 0.5;
+    for (const p of world.players.values()) {
+      if (!p.alive || p.squad === s.squad) continue;
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      if (dx * dx + dy * dy > r2) continue;
+      world.structures.delete(s.id);
+      p.rootTicks = rootTicks;
+      p.dashTicks = 0; // the snare ends a dash mid-flight
+      events.push({
+        k: 'trapTriggered',
+        tk: world.tick,
+        id: s.id,
+        squad: s.squad,
+        victim: p.id,
+        x: cx,
+        y: cy,
+      });
+      // Builder gone (left the match) => ownerless bite: full damage, no credit.
+      const builder = world.players.get(s.by) ?? null;
+      applyDamage(world, cfg, builder, p, trap.damage, 'trap', events);
+      break;
+    }
+  }
+}
+
+/**
+ * Trap triggers + supply generation + build placement + repair. Runs after
+ * movement AND pushout (a shove onto a trap tile trips it) and mutates the
+ * passed occupancy set as pieces go up, so two squadmates can't both drop
+ * one on the same tile in one tick.
  */
 export function stepStructures(
   world: World,
@@ -207,6 +266,10 @@ export function stepStructures(
   occ: Set<number>,
   events: SimEvent[],
 ): void {
+  // ---- traps bite first: positions are final for this tick, and a trap
+  // placed later this tick can't fire anyway (it still has to arm).
+  if (world.phase === PHASE_LIVE) stepTrapTriggers(world, cfg, events);
+
   // ---- supply: a living keep trickles into its squad's pool, clamped to cap.
   if (world.phase === PHASE_LIVE) {
     const perTick = cfg.build.supplyPerSec / cfg.tick.simHz;
@@ -268,13 +331,16 @@ export function stepStructures(
         id: world.nextId++,
         kind: b.kind,
         squad: p.squad,
+        by: p.id,
         tx,
         ty,
         hp: kindCfg.hp,
         maxHp: kindCfg.hp,
+        bornTick: world.tick,
       };
       world.structures.set(st.id, st);
-      occ.add(tileIndex(map, tx, ty));
+      // Traps stay out of the blocker layer — everything else blocks now.
+      if (b.kind !== STRUCT_TRAP) occ.add(tileIndex(map, tx, ty));
       events.push({
         k: 'structBuilt',
         tk: world.tick,

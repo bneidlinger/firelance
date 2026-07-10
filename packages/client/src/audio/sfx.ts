@@ -100,7 +100,8 @@ export type SfxName =
   | 'countdown'
   | 'live'
   | 'matchEnd'
-  | 'ownDeath';
+  | 'ownDeath'
+  | 'trapSnap';
 
 const SOUNDS: Record<SfxName, Note[]> = {
   shoot: [
@@ -155,6 +156,13 @@ const SOUNDS: Record<SfxName, Note[]> = {
     { wave: 'sine', f0: 110, f1: 34, d: 0.42, g: 1.0 },
     { wave: 'noise', f0: 0, d: 0.3, g: 0.65, lp: 1400 },
     { wave: 'square', f0: 70, f1: 40, d: 0.2, g: 0.3 },
+  ],
+  // Jaws closing: a metallic clack + short low thunk. Sharper than meleeHit —
+  // it should read as MECHANISM, not muscle.
+  trapSnap: [
+    { wave: 'square', f0: 2200, f1: 700, d: 0.05, g: 0.5 },
+    { wave: 'noise', f0: 0, d: 0.06, g: 0.55, lp: 6000 },
+    { wave: 'sine', f0: 180, f1: 60, d: 0.16, g: 0.7, at: 0.03 },
   ],
   // Under-attack klaxon: two urgent low blasts.
   alarm: [

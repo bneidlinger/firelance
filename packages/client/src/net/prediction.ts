@@ -113,6 +113,10 @@ export class Prediction {
       dashDy: you.dashDy,
       dashCd: you.dashCd,
       prevB: you.prevB,
+      // Trap roots replay through the kernel like dashes do. The trigger
+      // itself can't be predicted (the trap is invisible by design) — the
+      // one-time stop it causes arrives here as a normal reconcile.
+      rootTicks: you.rootTicks,
     };
 
     if (!this.initialized) {

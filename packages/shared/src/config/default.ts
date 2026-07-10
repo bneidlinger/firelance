@@ -129,6 +129,19 @@ export const defaultConfig: GameConfig = {
     // player vision rules from a fixed post, NO auto-attack (design doc).
     gate: { cost: 60, hp: 200, maxCount: 2 },
     tower: { cost: 80, hp: 150, maxCount: 2 },
+    // Trap: enemies never see it (fog rule, not hp); hp 1 means ANY chip or
+    // bomb splash clears it — bombing suspicious ground is the counterplay.
+    // Root ≈ two melee swings if a defender is already close; arm delay keeps
+    // it a PREPARED tool, not a dropped-on-your-face duel move.
+    trap: {
+      cost: 30,
+      hp: 1,
+      maxCount: 5,
+      damage: 35,
+      rootSec: 1.1,
+      armSec: 1.2,
+      triggerRadius: 0.6,
+    },
     // Repairs eat supply (doc §9.4). Engineer patches 2x per hit — the
     // specialist keeps a fort standing on half the supply bill.
     repair: { hpPerHit: 25, cost: 4, engineerFactor: 2 },

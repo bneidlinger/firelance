@@ -15,25 +15,28 @@ import { dropCarriedAsSack, settleKillEconomy } from './economy';
  * Apply damage from attacker to victim. Handles shield blocking, hit events,
  * assist bookkeeping, and death. Callers guarantee: victim alive, attacker
  * alive at fire time (bombs: at THROW time), phase is live, and squads differ
- * (unless friendlyFire).
+ * (unless friendlyFire). `attacker` is null ONLY for a trap whose builder has
+ * left the match — the trap still bites, the kill just credits nobody.
  */
 export function applyDamage(
   world: World,
   cfg: GameConfig,
-  attacker: Player,
+  attacker: Player | null,
   victim: Player,
   rawAmount: number,
-  kind: 'arrow' | 'melee' | 'bomb',
+  kind: 'arrow' | 'melee' | 'bomb' | 'trap',
   events: SimEvent[],
 ): void {
   if (!victim.alive) return;
-  if (!cfg.combat.friendlyFire && attacker.squad === victim.squad) return;
+  if (!cfg.combat.friendlyFire && attacker && attacker.squad === victim.squad) return;
 
   // Shield: victim blocking and the attacker sits inside the frontal sector.
-  // Bomb blasts are omnidirectional — no sector to hide behind.
-  const shield = kind === 'bomb' ? undefined : getKit(cfg, victim.cls).shield;
+  // Bomb blasts are omnidirectional and traps bite from below — no sector to
+  // hide behind for either.
+  const shield =
+    kind === 'bomb' || kind === 'trap' ? undefined : getKit(cfg, victim.cls).shield;
   let blocked = false;
-  if (shield && isBlocking(victim.input.b, true, victim.dashTicks)) {
+  if (shield && attacker && isBlocking(victim.input.b, true, victim.dashTicks)) {
     const dx = attacker.x - victim.x;
     const dy = attacker.y - victim.y;
     const l = Math.sqrt(dx * dx + dy * dy);
@@ -46,12 +49,12 @@ export function applyDamage(
   const amount = blocked ? rawAmount * shield!.damageFactor : rawAmount;
   victim.hp -= amount;
   victim.lastDamagedTick = world.tick;
-  victim.recentDamagers.set(attacker.id, world.tick);
+  if (attacker) victim.recentDamagers.set(attacker.id, world.tick);
 
   events.push({
     k: 'hit',
     tk: world.tick,
-    attacker: attacker.id,
+    attacker: attacker ? attacker.id : -1,
     victim: victim.id,
     amount,
     hp: victim.hp > 0 ? victim.hp : 0,
@@ -80,6 +83,7 @@ export function processDeath(
   victim.respawnAtTick = world.tick + secToTicks(cfg, cfg.player.respawnSec);
   // Cancel whatever the victim was doing mid-death.
   victim.dashTicks = 0;
+  victim.rootTicks = 0;
   victim.atkPhase = ATK_IDLE;
   victim.atkTicks = 0;
   victim.atkHitIds = [];

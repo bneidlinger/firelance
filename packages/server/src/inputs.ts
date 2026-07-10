@@ -1,5 +1,6 @@
 import type { InputMsg } from '@shared/net/messages';
 import type { InputCmd } from '@shared/sim/world';
+import { BTN_ALL } from '@shared/sim/world';
 
 // Latest-wins input slot per player. TCP never drops inputs, only delays them;
 // when none arrived for a tick the sim reuses the player's previous input.
@@ -40,7 +41,9 @@ export function sanitizeInput(m: InputMsg): InputCmd {
     my: clamp(m.my, -1, 1),
     ax,
     ay,
-    b: m.b & 0xff,
+    // Mask to the DEFINED buttons (not a hardcoded width — that's how the
+    // trap button shipped dead: 0xff chopped bit 9 at the trust boundary).
+    b: m.b & BTN_ALL,
   };
 }
 

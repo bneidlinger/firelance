@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 // ---------------------------------------------------------------- client → server
 
@@ -96,6 +96,7 @@ export const ST_DASHING = 8;
 export const ST_CARRYING = 16;
 export const ST_BANKING = 32;
 export const ST_REBUILDING = 64;
+export const ST_ROOTED = 128;
 
 /** Remote entity as serialized into a squad snapshot (coords quantized to 0.01). */
 export interface EntitySnap {
@@ -125,13 +126,14 @@ export interface SackSnap {
 }
 
 /**
- * A visible structure (wall in M4 s1; gate/tower/trap later). Fog rules: own
- * squad always; enemy structures only once a squadmate has eyes on the tile
- * (design §12.1 lists built structures as hidden information).
+ * A visible structure. Fog rules: own squad always; enemy structures only
+ * once a squadmate has eyes on the tile (design §12.1 lists built structures
+ * as hidden information) — EXCEPT traps, which are never serialized to enemy
+ * squads at all: eyes on the tile show you the ground, not the snare in it.
  */
 export interface StructSnap {
   i: number;
-  /** Kind: 0 = wall. */
+  /** Kind: 0 wall, 1 gate, 2 tower, 3 trap (own squad only). */
   k: number;
   /** Owning squad — colors it; not secret once seen. */
   s: number;
@@ -141,6 +143,8 @@ export interface StructSnap {
   /** Current / max hp — drives a damage tint. */
   hp: number;
   mx: number;
+  /** Traps only: 1 while still arming (own squad renders it dimmed). */
+  ar?: 1;
 }
 
 /**
@@ -183,6 +187,9 @@ export interface YouSnap {
   /** Keep-site claim channel progress in ticks (placement phase; 0 = idle);
    *  pairs with cfg.keep.claimChannelSec. */
   claimTicks: number;
+  /** Ticks left snared by a trap (0 = free) — mirrors into the prediction
+   *  kernel so the pin replays exactly, and drives the SNARED HUD strip. */
+  rootTicks: number;
 }
 
 export interface SnapMsg {

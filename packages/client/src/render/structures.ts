@@ -1,19 +1,21 @@
 import { Container, Graphics } from 'pixi.js';
 import type { StructSnap } from '@shared/net/messages';
-import { STRUCT_GATE, STRUCT_TOWER } from '@shared/sim/world';
+import { STRUCT_GATE, STRUCT_TOWER, STRUCT_TRAP } from '@shared/sim/world';
 import { SQUAD_COLORS, TILE } from './scene';
 
 // Structures (M4): squad-colored tiles. Walls read as stone, gates as a
 // door (posts + crossbar — YOUR squad walks through its own), towers as a
-// round lookout with braces. Own pieces bright with a bold edge; enemy pieces
-// (only sent once seen) a shade dimmer. Damage dims the fill and cracks it.
-// Renders straight from the newest snapshot's visible set, exactly like
-// sacks: fog entry/exit is just presence/absence, no lerp.
+// round lookout with braces, traps as a low caltrop only your squad ever
+// receives (dimmed + dashed ring while still arming). Own pieces bright with
+// a bold edge; enemy pieces (only sent once seen) a shade dimmer. Damage dims
+// the fill and cracks it. Renders straight from the newest snapshot's visible
+// set, exactly like sacks: fog entry/exit is just presence/absence, no lerp.
 
 interface StructSprite {
   g: Graphics;
   hp: number;
   squad: number;
+  arming: boolean;
 }
 
 export class StructureLayer {
@@ -31,8 +33,8 @@ export class StructureLayer {
     for (const s of structs) {
       seen.add(s.i);
       let sp = this.sprites.get(s.i);
-      // Redraw on hp change (damage tint) or owner change; else leave it be.
-      if (sp && sp.hp === s.hp && sp.squad === s.s) continue;
+      // Redraw on hp change (damage tint), owner change, or a trap arming.
+      if (sp && sp.hp === s.hp && sp.squad === s.s && sp.arming === (s.ar === 1)) continue;
       if (sp) {
         sp.g.destroy();
         this.sprites.delete(s.i);
@@ -40,7 +42,7 @@ export class StructureLayer {
       const g = this.draw(s, ownSquad);
       g.position.set(s.tx * TILE, s.ty * TILE);
       this.container.addChild(g);
-      this.sprites.set(s.i, { g, hp: s.hp, squad: s.s });
+      this.sprites.set(s.i, { g, hp: s.hp, squad: s.s, arming: s.ar === 1 });
     }
     for (const [id, sp] of this.sprites) {
       if (!seen.has(id)) {
@@ -68,6 +70,31 @@ export class StructureLayer {
         color: base,
         alpha: 0.95,
       });
+    } else if (s.k === STRUCT_TRAP) {
+      // A caltrop lying flat: X of spikes + a hub. Deliberately small and
+      // ground-hugging — the server only ever sends it to the owning squad
+      // (and spectators), so this is squad-private HUD, not world geometry.
+      const c = TILE / 2;
+      const armed = s.ar !== 1;
+      const a = armed ? 0.9 : 0.45;
+      g.moveTo(c - 4, c - 4)
+        .lineTo(c + 4, c + 4)
+        .moveTo(c + 4, c - 4)
+        .lineTo(c - 4, c + 4)
+        .stroke({ width: 2, color: base, alpha: a });
+      g.circle(c, c, 1.8).fill({ color: base, alpha: a });
+      if (!armed) {
+        // Arming: a dashed ring reads as "not live yet" at a glance.
+        const r = 6.5;
+        for (let i = 0; i < 8; i += 2) {
+          const a0 = (i / 8) * Math.PI * 2;
+          const a1 = ((i + 1) / 8) * Math.PI * 2;
+          g.moveTo(c + r * Math.cos(a0), c + r * Math.sin(a0))
+            .arc(c, c, r, a0, a1)
+            .stroke({ width: 1, color: base, alpha: 0.6 });
+        }
+      }
+      return g; // no shared crack overlay — a trap is 1hp, whole or gone
     } else if (s.k === STRUCT_TOWER) {
       // A lookout: round platform + cross braces; a dot for the sentry.
       g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).fill({ color: base, alpha: fillAlpha });

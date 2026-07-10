@@ -12,6 +12,7 @@ export type {
   ShieldConfig,
   BuildConfig,
   StructKindConfig,
+  TrapConfig,
 } from './types';
 export { getKit, secToTicks } from './types';
 export { defaultConfig } from './default';

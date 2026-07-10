@@ -58,6 +58,7 @@ const SERVER_SAMPLES: ServerMsg[] = [
       bombCd: 12,
       supply: 160,
       claimTicks: 0,
+      rootTicks: 18,
     },
     ents: [
       { i: 4, x: 10.25, y: 20.5, ax: 0.6, ay: 0.8, hp: 90, cls: 'fighter', st: 1 },
@@ -67,6 +68,7 @@ const SERVER_SAMPLES: ServerMsg[] = [
     structures: [
       { i: 30, k: 0, s: 2, tx: 42, ty: 60, hp: 200, mx: 200 },
       { i: 31, k: 0, s: 2, tx: 43, ty: 60, hp: 85, mx: 200 },
+      { i: 32, k: 3, s: 2, tx: 44, ty: 60, hp: 1, mx: 1, ar: 1 },
     ],
   },
   {
@@ -116,6 +118,19 @@ const SERVER_SAMPLES: ServerMsg[] = [
       { k: 'keepDestroyed', tk: 500, squad: 2, x: 79.5, y: 36.5, spilled: 730 },
       { k: 'keepRebuilt', tk: 900, squad: 2, x: 16.5, y: 60.5, by: 7 },
       { k: 'eliminated', tk: 1200, squad: 3 },
+      { k: 'trapTriggered', tk: 1300, id: 32, squad: 2, victim: 4, x: 44.5, y: 60.5 },
+      {
+        k: 'hit',
+        tk: 1300,
+        attacker: -1,
+        victim: 4,
+        amount: 35,
+        hp: 55,
+        kind: 'trap',
+        blocked: false,
+        x: 44.5,
+        y: 60.5,
+      },
     ],
   },
   {

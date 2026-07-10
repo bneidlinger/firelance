@@ -1,5 +1,5 @@
 import type { GameConfig } from '@shared/config';
-import { getKit } from '@shared/config';
+import { getKit, secToTicks } from '@shared/config';
 import type { MapData } from '@shared/map/types';
 import type { EntitySnap, SackSnap, StructSnap, YouSnap } from '@shared/net/messages';
 import {
@@ -9,13 +9,14 @@ import {
   ST_CARRYING,
   ST_DASHING,
   ST_REBUILDING,
+  ST_ROOTED,
   ST_WINDUP,
 } from '@shared/net/messages';
 import { isVisibleToSquad } from '@shared/sim/vision';
 import { isBlocking } from '@shared/sim/systems/movement';
 import { buildOccupancy } from '@shared/sim/systems/structures';
 import type { Player, World } from '@shared/sim/world';
-import { ATK_ACTIVE, ATK_WINDUP } from '@shared/sim/world';
+import { ATK_ACTIVE, ATK_WINDUP, STRUCT_TRAP } from '@shared/sim/world';
 
 // Pure per-squad snapshot builder — fog-of-war interest management is LIVE
 // here as of M1. The server only serializes what a squad can currently see,
@@ -40,6 +41,8 @@ function stateFlags(cfg: GameConfig, p: Player): number {
   if (p.carried > 0) st |= ST_CARRYING;
   if (p.bankTicks > 0) st |= ST_BANKING;
   if (p.rebuildTicks > 0) st |= ST_REBUILDING;
+  // Snared is a visible state (the net around the legs) — everyone sees it.
+  if (p.rootTicks > 0) st |= ST_ROOTED;
   return st;
 }
 
@@ -101,6 +104,9 @@ export function buildSquadSacks(
  * Structures this squad may see: own always, enemy only with a squadmate's eyes
  * on the tile. LOS here is TERRAIN-ONLY (no structure occupancy) — a wall must
  * never occlude itself, or you could never see the very wall you're facing.
+ * TRAPS are the hard exception: never serialized to an enemy squad, eyes-on or
+ * not (design §12.1 — a trap you can see coming is a doormat). Spectators are
+ * out of the match, so they get to see everything, traps included.
  */
 export function buildSquadStructures(
   world: World,
@@ -110,12 +116,14 @@ export function buildSquadStructures(
 ): StructSnap[] {
   const out: StructSnap[] = [];
   const spectator = isSpectator(world, squadId);
+  const trapArmTicks = secToTicks(cfg, cfg.build.trap.armSec);
   for (const s of world.structures.values()) {
     const own = s.squad === squadId;
     const cx = s.tx + 0.5;
     const cy = s.ty + 0.5;
+    if (s.kind === STRUCT_TRAP && !own && !spectator) continue;
     if (!own && !spectator && !isVisibleToSquad(world, map, cfg, squadId, cx, cy)) continue;
-    out.push({
+    const snap: StructSnap = {
       i: s.id,
       k: s.kind,
       s: s.squad,
@@ -123,7 +131,9 @@ export function buildSquadStructures(
       ty: s.ty,
       hp: Math.ceil(s.hp),
       mx: s.maxHp,
-    });
+    };
+    if (s.kind === STRUCT_TRAP && world.tick < s.bornTick + trapArmTicks) snap.ar = 1;
+    out.push(snap);
   }
   return out;
 }
@@ -154,5 +164,6 @@ export function buildYou(world: World, p: Player): YouSnap {
     bombCd: p.bombCd,
     supply: world.squads[p.squad]?.supply ?? 0,
     claimTicks: p.claimTicks,
+    rootTicks: p.rootTicks,
   };
 }

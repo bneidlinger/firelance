@@ -28,11 +28,12 @@ export type SimEvent =
   | {
       k: 'hit';
       tk: number;
+      /** Attacking player id; -1 for an ownerless source (orphaned trap). */
       attacker: number;
       victim: number;
       amount: number;
       hp: number;
-      kind: 'arrow' | 'melee' | 'bomb';
+      kind: 'arrow' | 'melee' | 'bomb' | 'trap';
       blocked: boolean;
       x: number;
       y: number;
@@ -89,6 +90,11 @@ export type SimEvent =
       x: number;
       y: number;
     }
+  /** A trap went off (consumed) — OWNER squad always (your tripwire fired,
+   *  wherever you are); everyone else positional. The paired `hit` event
+   *  carries the damage; this one carries the snap for fx/audio/alarm.
+   *  NOTE: structBuilt for kind trap is OWN-squad only — never positional. */
+  | { k: 'trapTriggered'; tk: number; id: number; squad: number; victim: number; x: number; y: number }
   // -- lifecycle
   | { k: 'respawn'; tk: number; id: number; squad: number; x: number; y: number }
   // -- economy, global (bounty is public info)

@@ -8,6 +8,7 @@ import {
   ST_BLOCKING,
   ST_CARRYING,
   ST_DASHING,
+  ST_ROOTED,
   ST_WINDUP,
 } from '@shared/net/messages';
 import {
@@ -20,6 +21,7 @@ import {
   PHASE_PLACEMENT,
   STRUCT_GATE,
   STRUCT_TOWER,
+  STRUCT_TRAP,
 } from '@shared/sim/world';
 import { sfx, unlockAudio } from './audio/sfx';
 import { InputState } from './input/input';
@@ -46,8 +48,8 @@ import { Overlay, showBanner } from './debug/overlay';
 //   ?nopredict             disable own-movement prediction (A/B + desync triage)
 // Controls: WASD move · mouse aim · LMB fire · RMB block (fighter) ·
 //           Space/Shift dash · E interact (claim site / load gold / bank) ·
-//           F firebomb · B wall · G gate · T tower (Engineer) — B on a damaged
-//           own structure repairs · 1/2/3 class at next respawn · F3 overlay
+//           F firebomb · B wall · G gate · T tower · V trap (Engineer) — B on a
+//           damaged own structure repairs · 1/2/3 class at next respawn · F3 overlay
 
 const params = new URLSearchParams(location.search);
 const name = params.get('name') ?? `guest${Math.floor(Math.random() * 1000)}`;
@@ -176,6 +178,13 @@ function handleServer(msg: ServerMsg): void {
       const map = getMap(msg.mapId);
       roster.clear();
       for (const r of msg.roster) roster.set(r.id, r);
+      // NOTE: `seq` deliberately does NOT reset here. The server gives every
+      // welcome (join/resume/restart) a fresh input slot, and a monotonic
+      // per-page counter is what makes that race-free: any of our inputs
+      // still in flight when the slot resets carries a seq BELOW the next
+      // one we send, so nothing we do can wedge the slot. (A welcome-time
+      // reset was tried and races: one in-flight high seq lands in the fresh
+      // slot first and every post-reset input reads as stale — ghost seat.)
       void setupScene(cfg, map, msg);
       break;
     }
@@ -189,6 +198,10 @@ function handleServer(msg: ServerMsg): void {
         const moveOcc = new Set<number>();
         const fullOcc = new Set<number>();
         for (const s of msg.structures) {
+          // Traps block nothing and occlude nothing (own traps DO arrive in
+          // our snapshot — adding them here would predict a collision the
+          // server never applies and snap us every time we cross our own).
+          if (s.k === STRUCT_TRAP) continue;
           const ti = s.ty * w + s.tx;
           fullOcc.add(ti);
           if (!(s.k === STRUCT_GATE && s.s === game.ownSquad)) moveOcc.add(ti);
@@ -283,8 +296,11 @@ function handleEvent(ev: NetEvent): void {
       game.fx.hitSpark(ev.x, ev.y, ev.blocked);
       game.entities.flash(ev.victim);
       game.lastHitPos.set(ev.victim, { x: ev.x, y: ev.y });
-      const sound = ev.blocked ? 'block' : ev.kind === 'arrow' ? 'arrowHit' : 'meleeHit';
-      sfx(sound, { x: ev.x, y: ev.y }, listener);
+      // Trap damage keeps quiet here — trapTriggered owns the snap sound.
+      if (ev.kind !== 'trap') {
+        const sound = ev.blocked ? 'block' : ev.kind === 'arrow' ? 'arrowHit' : 'meleeHit';
+        sfx(sound, { x: ev.x, y: ev.y }, listener);
+      }
       if (ev.victim === game.ownId) game.hud.vignette();
       break;
     }
@@ -445,6 +461,20 @@ function handleEvent(ev: NetEvent): void {
       game.fx.hitSpark(ev.x, ev.y, true); // the mason's clink
       if (ev.by === game.ownId) game.hud.toast('Patched — supply spent');
       break;
+    case 'trapTriggered': {
+      game.fx.explosion(ev.x, ev.y);
+      if (ev.victim === game.ownId) {
+        sfx('trapSnap'); // it's around YOUR leg — full volume
+        game.hud.alarm('⚠ SNARED ⚠');
+      } else {
+        sfx('trapSnap', { x: ev.x, y: ev.y }, listener);
+      }
+      if (ev.squad === game.ownSquad) {
+        const victim = roster.get(ev.victim);
+        game.hud.toast(`Your trap caught ${victim?.name ?? 'someone'}`);
+      }
+      break;
+    }
     case 'phase':
       game.phase = ev.phase;
       game.phaseEndsTick = ev.endsTick;
@@ -609,6 +639,7 @@ function frame(now: number): void {
     // aren't predicted — the 100ms lag on a badge is imperceptible).
     if (latestYou && latestYou.carried > 0) st |= ST_CARRYING;
     if (latestYou && latestYou.bankTicks > 0) st |= ST_BANKING;
+    if (latestYou && latestYou.rootTicks > 0) st |= ST_ROOTED;
     ownVisual = {
       x: ownPos.x,
       y: ownPos.y,
@@ -762,7 +793,7 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
   if (!html && latestYou.carried === 0 && latestYou.supply >= game.cfg.build.wall.cost) {
     html =
       latestYou.cls === 'engineer'
-        ? `<span class="key">B</span> wall · <span class="key">G</span> gate · <span class="key">T</span> tower` +
+        ? `<span class="key">B</span> wall · <span class="key">G</span> gate · <span class="key">T</span> tower · <span class="key">V</span> trap` +
           `<div class="sub">aim to place · B on a damaged wall repairs · ${Math.floor(latestYou.supply)} supply</div>`
         : `<span class="key">B</span> build a wall` +
           `<div class="sub">aim where you want it · ${Math.floor(latestYou.supply)} supply</div>`;
@@ -933,6 +964,7 @@ window.__fl = {
           bombCd: latestYou.bombCd,
           supply: latestYou.supply,
           claimTicks: latestYou.claimTicks,
+          rootTicks: latestYou.rootTicks,
         }
       : null,
     banking: game
@@ -948,7 +980,16 @@ window.__fl = {
       ? [...game.keepInfo.entries()].map(([squad, k]) => ({ squad, x: k.x, y: k.y, hp: k.hp }))
       : null,
     structures: game
-      ? interp.structures.map((s) => ({ i: s.i, k: s.k, squad: s.s, tx: s.tx, ty: s.ty, hp: s.hp }))
+      ? interp.structures.map((s) => ({
+          i: s.i,
+          k: s.k,
+          squad: s.s,
+          tx: s.tx,
+          ty: s.ty,
+          hp: s.hp,
+          mx: s.mx,
+          arming: s.ar === 1,
+        }))
       : null,
     ownEliminated: game?.ownEliminated ?? false,
     disconnected,

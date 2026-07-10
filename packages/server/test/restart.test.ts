@@ -57,15 +57,38 @@ describe('match auto-restart', () => {
     expect(second.squadId).toBe(firstWelcome.squadId); // seat kept its squad
     expect(second.roster.some((r) => r.name === 'stayer')).toBe(true);
 
-    // The re-seated player keeps working: inputs still land after restart.
+    // The re-seated player keeps working. The contract: the restart gave the
+    // seat a FRESH input slot, and the client's seq counter is monotonic per
+    // page — it does NOT reset on the new welcome. That pairing is race-free:
+    // an input still in flight when the slot resets always carries a lower
+    // seq than the next one sent, so nothing can wedge the slot. (A client
+    // that resets seq on welcome CAN wedge it: one in-flight high seq lands
+    // in the fresh slot first and every post-reset input reads as stale —
+    // a ghost seat that renders fine and controls nothing.)
     const p = match.world.players.get(second.playerId)!;
     expect(p).toBeDefined();
     const x0 = p.x;
+    // Simulate the race: one final PRE-restart-epoch input arrives late,
+    // AFTER the slot reset. The continuing counter must still win.
+    const preRestartSeq = liveTicks + endTicks + 100; // above anything sent above
+    pair.clientEnd.send(
+      encodeMsg({
+        t: 'input',
+        seq: preRestartSeq,
+        tick: match.world.tick,
+        mx: 0,
+        my: 0,
+        ax: 1,
+        ay: 0,
+        b: 0,
+      }),
+    );
+    match.tick();
     for (let i = 0; i < 60; i++) {
       pair.clientEnd.send(
         encodeMsg({
           t: 'input',
-          seq: 100_000 + i,
+          seq: preRestartSeq + 1 + i, // monotonic continuation — MUST apply
           tick: match.world.tick,
           mx: 1,
           my: 0,

@@ -65,6 +65,19 @@ export interface StructKindConfig {
   maxCount: number;
 }
 
+/** The Engineer's snare (doc §9.2/§12.1): invisible to enemies, consumed on
+ *  the first enemy who steps on it once armed — damage plus a short root. */
+export interface TrapConfig extends StructKindConfig {
+  /** Damage to the victim who trips it (bypasses shields — it's under you). */
+  damage: number;
+  /** How long the victim is rooted (walk zeroed, dash blocked). */
+  rootSec: number;
+  /** Delay between placement and going live — no face-planting mid-duel. */
+  armSec: number;
+  /** Trigger distance from tile center to an enemy's center. */
+  triggerRadius: number;
+}
+
 export interface BuildConfig {
   /** Build-supply each squad starts a live match with. */
   supplyStart: number;
@@ -80,10 +93,11 @@ export interface BuildConfig {
   cooldownSec: number;
   /** Structure damage per melee swing (desperation chip; all kinds). */
   meleeChip: number;
-  /** All classes build walls; gate/tower are Engineer-only (doc §9.2). */
+  /** All classes build walls; gate/tower/trap are Engineer-only (doc §9.2). */
   wall: StructKindConfig;
   gate: StructKindConfig;
   tower: StructKindConfig;
+  trap: TrapConfig;
   repair: {
     /** Hp restored per build-button hit on a damaged own structure. */
     hpPerHit: number;

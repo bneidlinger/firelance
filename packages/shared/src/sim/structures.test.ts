@@ -12,6 +12,7 @@ import {
   damageStructure,
   moveOccupancyFor,
   structCount,
+  structKindConfig,
   structuresInRange,
 } from './systems/structures';
 import { createMoveState, kitMoveParams, stepMovement } from './systems/movement';
@@ -81,13 +82,18 @@ function addStruct(
   ty: number,
   hp?: number,
 ): Structure {
-  const maxHp =
-    kind === STRUCT_WALL
-      ? CFG.build.wall.hp
-      : kind === STRUCT_GATE
-        ? CFG.build.gate.hp
-        : CFG.build.tower.hp;
-  const s: Structure = { id: w.nextId++, kind, squad, tx, ty, hp: hp ?? maxHp, maxHp };
+  const maxHp = structKindConfig(CFG, kind).hp;
+  const s: Structure = {
+    id: w.nextId++,
+    kind,
+    squad,
+    by: -1,
+    tx,
+    ty,
+    hp: hp ?? maxHp,
+    maxHp,
+    bornTick: w.tick,
+  };
   w.structures.set(s.id, s);
   return s;
 }
