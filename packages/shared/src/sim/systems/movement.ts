@@ -223,12 +223,17 @@ function anyBlockedInRow(
  * Pairwise circle separation. Server-only system (NOT part of the prediction
  * kernel — remote players aren't predicted, so contact divergence is small and
  * reconciliation absorbs it). 12 players = 66 pairs; plain O(n²) is fine.
+ *
+ * Occupancy is per-BODY as of M4 s3 (gates): pass `occFor` to give each body
+ * its own blocker set — a shove must never push someone out of a gateway
+ * their squad may stand in, nor INTO a tile blocked for them.
  */
 export function pushoutPairs(
   bodies: Array<{ x: number; y: number }>,
   r: number,
   map: MapData,
   occ: ReadonlySet<number> | null = null,
+  occFor: ((index: number) => ReadonlySet<number> | null) | null = null,
 ): void {
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
@@ -256,8 +261,8 @@ export function pushoutPairs(
       a.y -= ny * push;
       b.x += nx * push;
       b.y += ny * push;
-      resolveStaticOverlap(a, r, map, occ);
-      resolveStaticOverlap(b, r, map, occ);
+      resolveStaticOverlap(a, r, map, occFor ? occFor(i) : occ);
+      resolveStaticOverlap(b, r, map, occFor ? occFor(j) : occ);
     }
   }
 }

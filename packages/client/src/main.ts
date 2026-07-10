@@ -18,6 +18,8 @@ import {
   PHASE_ENDED,
   PHASE_LIVE,
   PHASE_PLACEMENT,
+  STRUCT_GATE,
+  STRUCT_TOWER,
 } from '@shared/sim/world';
 import { sfx, unlockAudio } from './audio/sfx';
 import { InputState } from './input/input';
@@ -38,13 +40,14 @@ import { Overlay, showBanner } from './debug/overlay';
 
 // Firelance client. URL params:
 //   ?name=Brandon          display name
-//   ?class=ranger          starting class (fighter|ranger)
+//   ?class=ranger          starting class (fighter|ranger|engineer)
 //   ?server=host:port      ws server (default: same origin, or :8787 in Vite dev)
 //   ?fakelag=120&jitter=30 added RTT ms + jitter — judge ALL feel with this on
 //   ?nopredict             disable own-movement prediction (A/B + desync triage)
 // Controls: WASD move · mouse aim · LMB fire · RMB block (fighter) ·
-//           Space/Shift dash · E interact (load gold at keep / bank at town) ·
-//           F firebomb · B build a wall · 1/2 class at next respawn · F3 net overlay
+//           Space/Shift dash · E interact (claim site / load gold / bank) ·
+//           F firebomb · B wall · G gate · T tower (Engineer) — B on a damaged
+//           own structure repairs · 1/2/3 class at next respawn · F3 overlay
 
 const params = new URLSearchParams(location.search);
 const name = params.get('name') ?? `guest${Math.floor(Math.random() * 1000)}`;
@@ -74,8 +77,9 @@ interface GameState {
   fx: FxLayer;
   fog: FogLayer;
   hud: Hud;
-  /** Structure occupancy from the newest snapshot — feeds prediction AND the
-   *  fog mask so walls block both exactly like they do server-side. */
+  /** FULL structure occupancy from the newest snapshot — the fog mask's
+   *  blocker set (gates veil everyone). Prediction gets its own MOVE set with
+   *  our gates carved out; both mirror the server's two layers exactly. */
   structOcc: ReadonlySet<number> | null;
   /** Own squad's keep site (claims/rebuilds move it; null until claimed). */
   ownKeep: { x: number; y: number } | null;
@@ -139,7 +143,10 @@ const wsUrl = serverParam
 const conn = new Connection({
   url: wsUrl,
   name,
-  cls: clsParam === 'fighter' || clsParam === 'ranger' ? clsParam : undefined,
+  cls:
+    clsParam === 'fighter' || clsParam === 'ranger' || clsParam === 'engineer'
+      ? clsParam
+      : undefined,
   fakelagMs,
   jitterMs,
   onMessage: handleServer,
@@ -174,11 +181,20 @@ function handleServer(msg: ServerMsg): void {
     }
     case 'snap':
       if (game) {
-        // Feed wall occupancy BEFORE reconciling so replayed inputs collide
-        // with the same walls the server saw (own walls are always in-snap).
+        // Feed occupancy BEFORE reconciling so replayed inputs collide with
+        // the same tiles the server saw. The MOVE set excludes our own gates
+        // (a door for our bodies) — the same rule the server applies, so
+        // gate-walking predicts bit-exactly. Fog uses the FULL set below.
         const w = game.map.width;
-        game.structOcc = new Set(msg.structures.map((s) => s.ty * w + s.tx));
-        game.prediction.setOccupancy(game.structOcc);
+        const moveOcc = new Set<number>();
+        const fullOcc = new Set<number>();
+        for (const s of msg.structures) {
+          const ti = s.ty * w + s.tx;
+          fullOcc.add(ti);
+          if (!(s.k === STRUCT_GATE && s.s === game.ownSquad)) moveOcc.add(ti);
+        }
+        game.structOcc = fullOcc;
+        game.prediction.setOccupancy(moveOcc);
         game.prediction.onSnapshot(msg.you, msg.ackSeq);
         onYou(msg.you);
       }
@@ -425,6 +441,10 @@ function handleEvent(ev: NetEvent): void {
     case 'structDestroyed':
       game.fx.explosion(ev.x, ev.y);
       break;
+    case 'structRepaired':
+      game.fx.hitSpark(ev.x, ev.y, true); // the mason's clink
+      if (ev.by === game.ownId) game.hud.toast('Patched — supply spent');
+      break;
     case 'phase':
       game.phase = ev.phase;
       game.phaseEndsTick = ev.endsTick;
@@ -548,7 +568,9 @@ function frame(now: number): void {
   const wantCls = input.takePendingClass();
   if (wantCls) {
     conn.send({ t: 'class', cls: wantCls });
-    game.hud.toast(`${wantCls === 'fighter' ? 'Fighter' : 'Ranger'} at next respawn`);
+    const label =
+      wantCls === 'fighter' ? 'Fighter' : wantCls === 'engineer' ? 'Engineer' : 'Ranger';
+    game.hud.toast(`${label} at next respawn`);
   }
 
   // ---- interpolation cursor
@@ -615,12 +637,18 @@ function frame(now: number): void {
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
 
-  // ---- fog from own squad's living viewers (same function as the server)
+  // ---- fog from own squad's living viewers (same function as the server) —
+  // plus our watchtowers (M4 s3): static extra eyes, exactly like the sim.
   const viewers: Array<{ x: number; y: number }> = [];
   if (ownPos && game.prediction.alive) viewers.push(ownPos);
   for (const [id, e] of visible) {
     if (id !== game.ownId && roster.get(id)?.squad === game.ownSquad) {
       viewers.push({ x: e.x, y: e.y });
+    }
+  }
+  for (const s of interp.structures) {
+    if (s.k === STRUCT_TOWER && s.s === game.ownSquad) {
+      viewers.push({ x: s.tx + 0.5, y: s.ty + 0.5 });
     }
   }
   game.fog.update(now, viewers, game.structOcc);
@@ -733,8 +761,11 @@ function updatePrompt(ownPos: { x: number; y: number } | null): void {
   // while hauling gold (a carrier's screen shouldn't nag about walls).
   if (!html && latestYou.carried === 0 && latestYou.supply >= game.cfg.build.wall.cost) {
     html =
-      `<span class="key">B</span> build a wall` +
-      `<div class="sub">aim where you want it · ${Math.floor(latestYou.supply)} supply</div>`;
+      latestYou.cls === 'engineer'
+        ? `<span class="key">B</span> wall · <span class="key">G</span> gate · <span class="key">T</span> tower` +
+          `<div class="sub">aim to place · B on a damaged wall repairs · ${Math.floor(latestYou.supply)} supply</div>`
+        : `<span class="key">B</span> build a wall` +
+          `<div class="sub">aim where you want it · ${Math.floor(latestYou.supply)} supply</div>`;
   }
   game.hud.prompt(html);
 }
@@ -917,7 +948,7 @@ window.__fl = {
       ? [...game.keepInfo.entries()].map(([squad, k]) => ({ squad, x: k.x, y: k.y, hp: k.hp }))
       : null,
     structures: game
-      ? interp.structures.map((s) => ({ i: s.i, squad: s.s, tx: s.tx, ty: s.ty, hp: s.hp }))
+      ? interp.structures.map((s) => ({ i: s.i, k: s.k, squad: s.s, tx: s.tx, ty: s.ty, hp: s.hp }))
       : null,
     ownEliminated: game?.ownEliminated ?? false,
     disconnected,

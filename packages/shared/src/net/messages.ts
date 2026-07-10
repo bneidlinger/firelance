@@ -6,7 +6,7 @@
 import type { ClassId } from '../config';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 // ---------------------------------------------------------------- client → server
 

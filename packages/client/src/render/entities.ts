@@ -107,6 +107,13 @@ export class EntityLayer {
     g.circle(0, 0, r).fill(s.baseColor);
     if (cls === 'fighter') {
       g.circle(0, 0, r - 1.5).stroke({ width: 2.5, color: 0x00000, alpha: 0.35 });
+    } else if (cls === 'engineer') {
+      // The builder's mark: a square frame inside the circle.
+      g.rect(-r * 0.45, -r * 0.45, r * 0.9, r * 0.9).stroke({
+        width: 1.5,
+        color: 0x000000,
+        alpha: 0.4,
+      });
     }
     if (isSelf) {
       g.circle(0, 0, r + 2.5).stroke({ width: 2, color: 0xf4ead8 });

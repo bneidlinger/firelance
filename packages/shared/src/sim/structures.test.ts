@@ -8,27 +8,34 @@ import { isVisibleToSquad, tileRayClear } from './vision';
 import {
   buildOccupancy,
   buildTargetTile,
-  canBuildWallAt,
+  canBuildStructAt,
   damageStructure,
+  moveOccupancyFor,
+  structCount,
   structuresInRange,
-  wallCount,
 } from './systems/structures';
 import { createMoveState, kitMoveParams, stepMovement } from './systems/movement';
-import type { InputCmd, Structure, World } from './world';
+import type { InputCmd, Structure, StructureKind, World } from './world';
 import {
   BTN_BOMB,
   BTN_BUILD,
+  BTN_BUILD_GATE,
+  BTN_BUILD_TOWER,
   BTN_FIRE,
   PHASE_LIVE,
+  STRUCT_GATE,
+  STRUCT_TOWER,
   STRUCT_WALL,
   createWorld,
   hashWorld,
   spawnPlayer,
 } from './world';
 
-// M4 slice 1: walls. The bot harness never builds, so wall mechanics live or
-// die HERE — placement rules, the collision + vision occupancy layer, arrows as
-// cover, firebomb/melee destruction, the build-supply ledger, and determinism.
+// M4 slices 1+3: structures. The bot harness never builds, so the mechanics
+// live or die HERE — placement rules, the collision + vision occupancy layers,
+// arrows as cover, firebomb/melee destruction, the build-supply ledger, the
+// Engineer's gate (squad-door) and watchtower (static viewer), repairs, and
+// determinism.
 
 // Open arena: 4 corner keeps, a town pair, a water strip, a forest patch — one
 // of each rejection case for the placement validator. Keeps at (3,5)/(16,5)/
@@ -66,24 +73,27 @@ function input(id: number, cmd: Partial<InputCmd>): Map<number, InputCmd> {
   return new Map([[id, { mx: 0, my: 0, ax: 1, ay: 0, b: 0, ...cmd }]]);
 }
 
-function addWall(
+function addStruct(
   w: World,
   squad: number,
+  kind: StructureKind,
   tx: number,
   ty: number,
-  hp = CFG.build.wall.hp,
+  hp?: number,
 ): Structure {
-  const s: Structure = {
-    id: w.nextId++,
-    kind: STRUCT_WALL,
-    squad,
-    tx,
-    ty,
-    hp,
-    maxHp: CFG.build.wall.hp,
-  };
+  const maxHp =
+    kind === STRUCT_WALL
+      ? CFG.build.wall.hp
+      : kind === STRUCT_GATE
+        ? CFG.build.gate.hp
+        : CFG.build.tower.hp;
+  const s: Structure = { id: w.nextId++, kind, squad, tx, ty, hp: hp ?? maxHp, maxHp };
   w.structures.set(s.id, s);
   return s;
+}
+
+function addWall(w: World, squad: number, tx: number, ty: number, hp?: number): Structure {
+  return addStruct(w, squad, STRUCT_WALL, tx, ty, hp);
 }
 
 describe('build-supply ledger', () => {
@@ -145,7 +155,7 @@ describe('wall placement', () => {
     const w = liveWorld();
     const p = spawnPlayer(w, CFG, 0, 'builder', false, 'ranger', 9.5, 6.5);
     for (let i = 0; i < CFG.build.wall.maxCount; i++) addWall(w, 0, 3 + i, 2);
-    expect(wallCount(w, 0)).toBe(CFG.build.wall.maxCount);
+    expect(structCount(w, 0, STRUCT_WALL)).toBe(CFG.build.wall.maxCount);
     w.squads[0]!.supply = 1000;
     stepWorld(w, input(p.id, { ax: 0, ay: -1, b: BTN_BUILD }), CFG, arena);
     expect(w.structures.size).toBe(CFG.build.wall.maxCount); // no new wall
@@ -154,22 +164,22 @@ describe('wall placement', () => {
   it('the placement validator rejects terrain, structures, keeps, towns, and the enemy exclusion zone', () => {
     const w = liveWorld();
     const occ = new Set<number>();
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 9, 7)).toBe(false); // water
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 6, 4)).toBe(false); // forest
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 3, 5)).toBe(false); // a keep site
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 6, 3)).toBe(false); // a town
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 15, 5)).toBe(false); // hugging enemy keep (16,5)
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 9, 7)).toBe(false); // water
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 6, 4)).toBe(false); // forest
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 3, 5)).toBe(false); // a keep site
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 6, 3)).toBe(false); // a town
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 15, 5)).toBe(false); // hugging enemy keep (16,5)
 
     // A player standing on the tile blocks it (never trap someone in a wall).
     spawnPlayer(w, CFG, 0, 'x', false, 'ranger', 9.5, 6.5);
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 9, 6)).toBe(false);
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 9, 6)).toBe(false);
 
     // An open tile clear of every rule — legal. (8,2) is ≥6 from all three
     // enemy keeps at (16.5,5.5)/(3.5,9.5)/(16.5,9.5).
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 8, 2)).toBe(true);
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 8, 2)).toBe(true);
     // ...until a structure already sits there.
     occ.add(tileIndex(arena, 8, 2));
-    expect(canBuildWallAt(w, CFG, arena, occ, 0, 8, 2)).toBe(false);
+    expect(canBuildStructAt(w, CFG, arena, occ, 0, 8, 2)).toBe(false);
   });
 });
 
@@ -255,17 +265,175 @@ describe('wall destruction', () => {
   });
 });
 
+describe('gates (M4 s3)', () => {
+  it('a gate is a door for its squad and a wall for everyone else', () => {
+    const w = liveWorld();
+    addStruct(w, 0, STRUCT_GATE, 8, 6);
+    const ownOcc = moveOccupancyFor(w, arena.width, 0);
+    const enemyOcc = moveOccupancyFor(w, arena.width, 1);
+    expect(ownOcc.has(tileIndex(arena, 8, 6))).toBe(false);
+    expect(enemyOcc.has(tileIndex(arena, 8, 6))).toBe(true);
+
+    const params = kitMoveParams(CFG, 'ranger');
+    const cmd: InputCmd = { mx: 1, my: 0, ax: 1, ay: 0, b: 0 };
+    const owner = createMoveState(6.5, 6.5);
+    for (let i = 0; i < 40; i++) stepMovement(owner, cmd, params, arena, 1 / 30, 1, ownOcc);
+    expect(owner.x).toBeGreaterThan(9); // walked straight through the doorway
+
+    const enemy = createMoveState(6.5, 6.5);
+    for (let i = 0; i < 40; i++) stepMovement(enemy, cmd, params, arena, 1 / 30, 1, enemyOcc);
+    expect(enemy.x).toBeLessThan(8); // bounced off the door
+  });
+
+  it('a gate blocks vision for EVERYONE — including its owners', () => {
+    const w = liveWorld();
+    addStruct(w, 0, STRUCT_GATE, 8, 6);
+    const occ = buildOccupancy(w, arena.width); // the vision/combat layer
+    expect(occ.has(tileIndex(arena, 8, 6))).toBe(true); // gates never leave it
+    expect(tileRayClear(arena, 6.5, 6.5, 11.5, 6.5, occ)).toBe(false);
+  });
+
+  it('only an Engineer can raise a gate or tower, capped per squad', () => {
+    const w = liveWorld();
+    w.squads[0]!.supply = 1000;
+    // Ranger aims at tiles the validator ACCEPTS (asserted) — the refusal
+    // below is therefore class-gating, nothing else.
+    const ranger = spawnPlayer(w, CFG, 0, 'r', false, 'ranger', 9.5, 6.5);
+    expect(canBuildStructAt(w, CFG, arena, new Set(), 0, 9, 4)).toBe(true);
+    stepWorld(w, input(ranger.id, { ax: 0, ay: -1, b: BTN_BUILD_GATE }), CFG, arena);
+    stepWorld(w, input(ranger.id, { ax: 0, ay: -1, b: BTN_BUILD_TOWER }), CFG, arena);
+    expect(w.structures.size).toBe(0); // not the specialist's trade
+
+    // The Engineer at (8.5,3.5): aim north → (8,1), clear of every exclusion.
+    const eng = spawnPlayer(w, CFG, 0, 'e', false, 'engineer', 8.5, 3.5);
+    const gateEvents = stepWorld(
+      w,
+      input(eng.id, { ax: 0, ay: -1, b: BTN_BUILD_GATE }),
+      CFG,
+      arena,
+    );
+    expect(structCount(w, 0, STRUCT_GATE)).toBe(1);
+    expect(gateEvents.some((e) => e.k === 'structBuilt' && e.kind === STRUCT_GATE)).toBe(true);
+
+    // Held inputs persist across empty ticks (TCP semantics) — the waits must
+    // RELEASE the button or the next press has no rising edge.
+    const rest = (n: number): void => {
+      for (let i = 0; i < n; i++) stepWorld(w, input(eng.id, { b: 0 }), CFG, arena);
+    };
+
+    // Cap: pre-plant to the gate limit; the next LEGAL placement is refused —
+    // and the target's legality is asserted, so the cap is what refused it.
+    for (let i = structCount(w, 0, STRUCT_GATE); i < CFG.build.gate.maxCount; i++) {
+      addStruct(w, 0, STRUCT_GATE, 3 + i, 2);
+    }
+    rest(60); // cooldown off, button released
+    expect(canBuildStructAt(w, CFG, arena, buildOccupancy(w, arena.width), 0, 10, 3)).toBe(true);
+    stepWorld(w, input(eng.id, { ax: 1, ay: 0, b: BTN_BUILD_GATE }), CFG, arena);
+    expect(structCount(w, 0, STRUCT_GATE)).toBe(CFG.build.gate.maxCount);
+
+    // Towers place through the same gate: Engineer yes, capped separately.
+    rest(60);
+    stepWorld(w, input(eng.id, { ax: 0, ay: -1, b: BTN_BUILD_TOWER }), CFG, arena);
+    expect(structCount(w, 0, STRUCT_TOWER)).toBe(0); // (8,1) already holds the gate
+    rest(60);
+    stepWorld(w, input(eng.id, { ax: 1, ay: 0, b: BTN_BUILD_TOWER }), CFG, arena);
+    expect(structCount(w, 0, STRUCT_TOWER)).toBe(1); // (10,3) was free and legal
+  });
+});
+
+describe('watchtowers (M4 s3)', () => {
+  it('a living tower is an extra pair of eyes; its death blinds the squad', () => {
+    const w = liveWorld();
+    // Enemy hides in the forest at (6.5,4.5): visible only within forestRadius
+    // (4) — the squad-0 viewer at (15.5,9.5) is 11+ away, so squad 0 is blind.
+    spawnPlayer(w, CFG, 0, 'far', false, 'ranger', 15.5, 9.5);
+    spawnPlayer(w, CFG, 1, 'lurker', false, 'ranger', 6.5, 4.5);
+    expect(isVisibleToSquad(w, arena, CFG, 0, 6.5, 4.5)).toBe(false);
+
+    // A tower at (5,3) sits 1.4 from the lurker — inside the forest rule.
+    const tower = addStruct(w, 0, STRUCT_TOWER, 5, 3);
+    expect(isVisibleToSquad(w, arena, CFG, 0, 6.5, 4.5)).toBe(true);
+
+    tower.hp = 0; // dead towers see nothing
+    expect(isVisibleToSquad(w, arena, CFG, 0, 6.5, 4.5)).toBe(false);
+  });
+
+  it('tower sight obeys the ray rules — a wall blinds it', () => {
+    const w = liveWorld();
+    addStruct(w, 0, STRUCT_TOWER, 3, 6);
+    const occ = () => buildOccupancy(w, arena.width);
+    expect(isVisibleToSquad(w, arena, CFG, 0, 8.5, 6.5, occ())).toBe(true);
+    addWall(w, 1, 6, 6); // enemy wall between tower and target
+    expect(isVisibleToSquad(w, arena, CFG, 0, 8.5, 6.5, occ())).toBe(false);
+  });
+});
+
+describe('repairs (M4 s3)', () => {
+  it('a build press on a damaged own structure patches it and spends supply', () => {
+    const w = liveWorld();
+    const p = spawnPlayer(w, CFG, 0, 'fixer', false, 'ranger', 7.5, 6.5);
+    const wall = addWall(w, 0, 9, 6, 100); // damaged: 100/200
+    const supply0 = w.squads[0]!.supply;
+    const events = stepWorld(w, input(p.id, { ax: 1, ay: 0, b: BTN_BUILD }), CFG, arena);
+    expect(wall.hp).toBe(100 + CFG.build.repair.hpPerHit);
+    expect(w.squads[0]!.supply).toBeCloseTo(
+      supply0 + CFG.build.supplyPerSec / CFG.tick.simHz - CFG.build.repair.cost,
+      2,
+    );
+    expect(events.some((e) => e.k === 'structRepaired')).toBe(true);
+    expect(w.players.get(p.id)!.buildCd).toBeGreaterThan(0);
+  });
+
+  it('the Engineer repairs at engineerFactor; heals never overshoot max', () => {
+    const w = liveWorld();
+    const eng = spawnPlayer(w, CFG, 0, 'eng', false, 'engineer', 7.5, 6.5);
+    const wall = addWall(w, 0, 9, 6, 100);
+    stepWorld(w, input(eng.id, { ax: 1, ay: 0, b: BTN_BUILD }), CFG, arena);
+    expect(wall.hp).toBe(100 + CFG.build.repair.hpPerHit * CFG.build.repair.engineerFactor);
+
+    wall.hp = wall.maxHp - 5; // nearly whole: heal clamps to max
+    // Release the held button while the cooldown runs (inputs persist).
+    for (let i = 0; i < 60; i++) stepWorld(w, input(eng.id, { b: 0 }), CFG, arena);
+    stepWorld(w, input(eng.id, { ax: 1, ay: 0, b: BTN_BUILD }), CFG, arena);
+    expect(wall.hp).toBe(wall.maxHp);
+  });
+
+  it('full-hp structures and enemy structures never eat supply', () => {
+    const w = liveWorld();
+    const p = spawnPlayer(w, CFG, 0, 'fixer', false, 'ranger', 7.5, 6.5);
+    addWall(w, 0, 9, 6); // own, FULL hp
+    const supply0 = w.squads[0]!.supply;
+    stepWorld(w, input(p.id, { ax: 1, ay: 0, b: BTN_BUILD }), CFG, arena);
+    // Only the trickle moved the pool — no repair, no placement (tile taken).
+    expect(w.squads[0]!.supply).toBeCloseTo(supply0 + CFG.build.supplyPerSec / CFG.tick.simHz, 5);
+
+    const w2 = liveWorld();
+    const p2 = spawnPlayer(w2, CFG, 0, 'fixer', false, 'ranger', 7.5, 6.5);
+    const enemyWall = addWall(w2, 1, 9, 6, 50); // damaged but ENEMY
+    const supply2 = w2.squads[0]!.supply;
+    stepWorld(w2, input(p2.id, { ax: 1, ay: 0, b: BTN_BUILD }), CFG, arena);
+    expect(enemyWall.hp).toBe(50); // no cross-squad repairs
+    expect(w2.squads[0]!.supply).toBeCloseTo(supply2 + CFG.build.supplyPerSec / CFG.tick.simHz, 5);
+  });
+});
+
 describe('structures stay deterministic', () => {
-  it('two identical build-and-siege scripts hash-match tick for tick', () => {
+  it('two identical engineer build-siege-repair scripts hash-match tick for tick', () => {
     const run = (): string[] => {
       const w = liveWorld(7);
-      const builder = spawnPlayer(w, CFG, 0, 'b', false, 'ranger', 9.5, 6.5);
-      const sieger = spawnPlayer(w, CFG, 1, 's', false, 'ranger', 9.5, 8.5);
+      const builder = spawnPlayer(w, CFG, 0, 'b', false, 'engineer', 9.5, 6.5);
+      // Sieger positioned so the fixed-range lob lands ON the builder's wall
+      // lane: structures actually die and get rebuilt inside the script.
+      const sieger = spawnPlayer(w, CFG, 1, 's', false, 'ranger', 9.5, 10.5);
       const hashes: string[] = [];
-      for (let t = 0; t < 60; t++) {
+      const kit = [BTN_BUILD, BTN_BUILD_GATE, BTN_BUILD_TOWER];
+      for (let t = 0; t < 90; t++) {
         const inputs = new Map<number, InputCmd>();
-        // Builder drops walls upward on a cadence; sieger firebombs upward.
-        if (t % 12 === 0) inputs.set(builder.id, { mx: 0, my: 0, ax: 0, ay: -1, b: BTN_BUILD });
+        // Engineer cycles wall/gate/tower placements (and repairs whatever the
+        // aim lands on); sieger firebombs the same lane.
+        if (t % 12 === 0) {
+          inputs.set(builder.id, { mx: 0, my: 0, ax: 0, ay: -1, b: kit[(t / 12) % 3]! });
+        }
         if (t % 20 === 0) inputs.set(sieger.id, { mx: 0, my: 0, ax: 0, ay: -1, b: BTN_BOMB });
         stepWorld(w, inputs, CFG, arena);
         hashes.push(hashWorld(w));
@@ -275,6 +443,6 @@ describe('structures stay deterministic', () => {
     const a = run();
     const b = run();
     expect(a).toEqual(b);
-    expect(a.length).toBe(60);
+    expect(a.length).toBe(90);
   });
 });

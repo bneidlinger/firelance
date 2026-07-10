@@ -12,7 +12,7 @@ export function encodeMsg(msg: ClientMsg | ServerMsg): string {
 
 const CLIENT_KINDS = new Set(['hello', 'input', 'class', 'ping']);
 const SERVER_KINDS = new Set(['welcome', 'snap', 'ev', 'score', 'pong', 'error']);
-const CLASS_IDS = new Set(['fighter', 'ranger']);
+const CLASS_IDS = new Set(['fighter', 'ranger', 'engineer']);
 
 function parse(data: unknown): DecodeResult<Record<string, unknown>> {
   if (typeof data !== 'string') return { ok: false, error: 'non-string frame' };

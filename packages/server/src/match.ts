@@ -487,6 +487,7 @@ export class Match {
           break;
         case 'structBuilt':
         case 'structDestroyed':
+        case 'structRepaired':
           // Positional: your own building is always yours to see; enemy building
           // (design §12.1 hidden) only with eyes on the tile.
           if (ev.squad === squadId || visible(ev.x, ev.y)) out.push(ev);

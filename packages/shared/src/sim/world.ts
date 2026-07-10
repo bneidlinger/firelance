@@ -15,7 +15,8 @@ export interface InputCmd {
   /** Aim unit vector (used as data — never re-derived via trig in the sim). */
   ax: number;
   ay: number;
-  /** Button bitmask: 1 fire, 2 block, 4 dash, 8 interact, 16 bomb, 32 build. */
+  /** Button bitmask: 1 fire, 2 block, 4 dash, 8 interact, 16 bomb,
+   *  32 build wall, 64 build gate, 128 build tower (gate/tower Engineer-only). */
   b: number;
 }
 
@@ -25,11 +26,16 @@ export const BTN_DASH = 4;
 export const BTN_INTERACT = 8;
 export const BTN_BOMB = 16;
 export const BTN_BUILD = 32;
+export const BTN_BUILD_GATE = 64;
+export const BTN_BUILD_TOWER = 128;
 
-// Structure kinds. Wall is the only one in M4 slice 1; gate/tower/trap widen
-// StructureKind in later slices.
+// Structure kinds (M4): wall blocks everyone; gate is a door for the owning
+// squad's BODIES only (vision/arrows blocked for all); tower is a static
+// extra viewer for its squad — information, never damage. Traps land in s4.
 export const STRUCT_WALL = 0;
-export type StructureKind = 0;
+export const STRUCT_GATE = 1;
+export const STRUCT_TOWER = 2;
+export type StructureKind = 0 | 1 | 2;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 

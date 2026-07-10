@@ -48,6 +48,15 @@ export const defaultConfig: GameConfig = {
       dash: { speed: 20, durationSec: 0.15, cooldownSec: 2.5 },
       bow: { damage: 26, speed: 14, cooldownSec: 0.75, ttlSec: 1.6, radius: 0.15 },
     },
+    // Engineer: the building specialist (M4 s3). Crossbow: flatter and faster
+    // than the bow (harder to dodge) but ~half the dps — a support sidearm,
+    // not a duelist's weapon. The real kit is B/G/T + 2x repairs.
+    engineer: {
+      maxHp: 100,
+      moveSpeed: 5,
+      dash: { speed: 18, durationSec: 0.15, cooldownSec: 3 },
+      bow: { damage: 20, speed: 17, cooldownSec: 1.1, ttlSec: 0.75, radius: 0.15 },
+    },
   },
   combat: {
     friendlyFire: false,
@@ -111,13 +120,17 @@ export const defaultConfig: GameConfig = {
     supplyPerSec: 2,
     supplyCap: 300,
     enemyKeepExclusion: 6,
-    wall: {
-      cost: 40,
-      hp: 200,
-      maxCount: 8,
-      buildReach: 2,
-      buildCooldownSec: 1.5,
-      meleeDamage: 8,
-    },
+    reach: 2,
+    cooldownSec: 1.5,
+    meleeChip: 8,
+    wall: { cost: 40, hp: 200, maxCount: 8 },
+    // Engineer-only. Gate: a door for your squad's bodies, a wall for everyone
+    // else's (and for ALL vision/arrows). Tower: a static extra pair of eyes —
+    // player vision rules from a fixed post, NO auto-attack (design doc).
+    gate: { cost: 60, hp: 200, maxCount: 2 },
+    tower: { cost: 80, hp: 150, maxCount: 2 },
+    // Repairs eat supply (doc §9.4). Engineer patches 2x per hit — the
+    // specialist keeps a fort standing on half the supply bill.
+    repair: { hpPerHit: 25, cost: 4, engineerFactor: 2 },
   },
 };

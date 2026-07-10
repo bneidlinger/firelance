@@ -5,7 +5,7 @@
 // Angles are stored as COSINES of the half-angle (e.g. 120° arc => cos(60°)
 // = 0.5) so the sim tests membership with dot products and never calls trig.
 
-export type ClassId = 'fighter' | 'ranger';
+export type ClassId = 'fighter' | 'ranger' | 'engineer';
 
 export interface DashConfig {
   /** Dash travel speed (units/sec). Displacement = speed × duration. */
@@ -55,19 +55,14 @@ export interface ClassKit {
   shield?: ShieldConfig;
 }
 
-export interface WallConfig {
-  /** Build-supply consumed per wall segment. */
+/** Cost/durability/cap for one placeable structure kind. */
+export interface StructKindConfig {
+  /** Build-supply consumed per placement. */
   cost: number;
-  /** Wall hit points (firebomb.damage vs this sets the bombs-per-wall count). */
+  /** Hit points (firebomb.damage vs this sets the bombs-to-kill count). */
   hp: number;
-  /** Per-squad cap on standing wall segments (fortress-spam guard). */
+  /** Per-squad cap on standing pieces of this kind (fortress-spam guard). */
   maxCount: number;
-  /** How far in front of the builder a segment may be placed (units). */
-  buildReach: number;
-  /** Per-builder cooldown between placements. */
-  buildCooldownSec: number;
-  /** Structure damage per melee swing against a wall (desperation chip). */
-  meleeDamage: number;
 }
 
 export interface BuildConfig {
@@ -77,9 +72,26 @@ export interface BuildConfig {
   supplyPerSec: number;
   /** Ceiling on a squad's build-supply pool. */
   supplyCap: number;
-  /** A wall may not be placed within this many units of an ENEMY keep. */
+  /** Nothing may be placed within this many units of an ENEMY keep. */
   enemyKeepExclusion: number;
-  wall: WallConfig;
+  /** How far in front of the builder a placement lands (units; all kinds). */
+  reach: number;
+  /** Per-builder cooldown between build actions (place OR repair). */
+  cooldownSec: number;
+  /** Structure damage per melee swing (desperation chip; all kinds). */
+  meleeChip: number;
+  /** All classes build walls; gate/tower are Engineer-only (doc §9.2). */
+  wall: StructKindConfig;
+  gate: StructKindConfig;
+  tower: StructKindConfig;
+  repair: {
+    /** Hp restored per build-button hit on a damaged own structure. */
+    hpPerHit: number;
+    /** Supply consumed per repair hit (doc §9.4: repairs eat supply). */
+    cost: number;
+    /** Engineer repair multiplier (doc: the specialist repairs faster). */
+    engineerFactor: number;
+  };
 }
 
 export interface GameConfig {

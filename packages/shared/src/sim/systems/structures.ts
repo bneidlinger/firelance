@@ -1,25 +1,37 @@
-import type { GameConfig } from '../../config';
+import type { GameConfig, StructKindConfig } from '../../config';
 import { secToTicks } from '../../config';
 import type { MapData } from '../../map/types';
 import { isWalkBlocked, tileIndex } from '../../map/types';
 import type { SimEvent } from '../events';
-import type { Structure, World } from '../world';
-import { ATK_IDLE, BTN_BUILD, PHASE_LIVE, STRUCT_WALL } from '../world';
+import type { Structure, StructureKind, World } from '../world';
+import {
+  ATK_IDLE,
+  BTN_BUILD,
+  BTN_BUILD_GATE,
+  BTN_BUILD_TOWER,
+  PHASE_LIVE,
+  STRUCT_GATE,
+  STRUCT_TOWER,
+  STRUCT_WALL,
+} from '../world';
 
-// Structures: the first placeable, destroyable, grid-occupying entities in the
-// game (walls now; gates/towers/traps land in later M4 slices). They join TWO
-// grids the sim already had — movement collision and vision rays — through one
-// derived tile-occupancy set the server rebuilds each tick and the client
-// rebuilds from its snapshot, so wall prediction is bit-identical for free.
+// Structures: placeable, destroyable, grid-occupying entities. M4 s1 shipped
+// walls; s3 adds the Engineer's gate (a door for the owning squad's bodies —
+// a wall for everyone else's, and for ALL vision/arrows) and watchtower (a
+// static extra viewer — information, never damage). Occupancy splits in two:
+//   buildOccupancy     — the FULL set; vision rays, projectiles, melee LOS.
+//   moveOccupancyFor   — per squad; excludes that squad's own living gates.
+// Both are derived fresh from world.structures, and the client rebuilds the
+// identical sets from its snapshot, so gate-walking predicts bit-exactly.
 //
 // Build supply is a per-squad resource, NOT gold: it can never touch the score
 // ledger (design §9.4). A living keep trickles it; the keep's death stops the
-// tap. The pool is a pure sink — supply spent into a wall is gone (no refund).
+// tap. Placements AND repairs spend it — a pure sink (no refunds).
 
-/** The movement+vision blocker layer: tile indices occupied by a live structure. */
+/** The vision/combat blocker layer: tile indices occupied by a live structure. */
 export type Occupancy = ReadonlySet<number>;
 
-/** Rebuild the occupancy set from every standing structure. Cheap (O(structures)). */
+/** Rebuild the full occupancy set from every standing structure. */
 export function buildOccupancy(world: World, width: number): Set<number> {
   const occ = new Set<number>();
   for (const s of world.structures.values()) {
@@ -28,19 +40,39 @@ export function buildOccupancy(world: World, width: number): Set<number> {
   return occ;
 }
 
-/** How many standing walls a squad owns (the fortress-spam cap counts these). */
-export function wallCount(world: World, squadId: number): number {
+/** Movement blockers for ONE squad: everything except its own living gates.
+ *  The gate rule in a single line — a door for your bodies, a wall for theirs. */
+export function moveOccupancyFor(world: World, width: number, squad: number): Set<number> {
+  const occ = new Set<number>();
+  for (const s of world.structures.values()) {
+    if (s.hp <= 0) continue;
+    if (s.kind === STRUCT_GATE && s.squad === squad) continue;
+    occ.add(s.ty * width + s.tx);
+  }
+  return occ;
+}
+
+/** Standing structures of one kind a squad owns (per-kind caps count these). */
+export function structCount(world: World, squadId: number, kind: StructureKind): number {
   let n = 0;
   for (const s of world.structures.values()) {
-    if (s.squad === squadId && s.kind === STRUCT_WALL && s.hp > 0) n++;
+    if (s.squad === squadId && s.kind === kind && s.hp > 0) n++;
   }
   return n;
+}
+
+export function structKindConfig(cfg: GameConfig, kind: StructureKind): StructKindConfig {
+  return kind === STRUCT_WALL
+    ? cfg.build.wall
+    : kind === STRUCT_GATE
+      ? cfg.build.gate
+      : cfg.build.tower;
 }
 
 /**
  * The single entry point for structure damage — mirrors damageKeep. On death a
  * structure leaves the world and emits a positional event; no under-attack
- * alarm (walls are cheap and expendable, the keep alarm is the one that matters).
+ * alarm (structures are expendable, the keep alarm is the one that matters).
  */
 export function damageStructure(
   world: World,
@@ -90,7 +122,7 @@ export function structuresInRange(
   return hit;
 }
 
-/** The tile a builder is aiming at: one buildReach step along the aim vector. */
+/** The tile a builder is aiming at: one build-reach step along the aim vector. */
 export function buildTargetTile(
   cfg: GameConfig,
   x: number,
@@ -98,17 +130,17 @@ export function buildTargetTile(
   ax: number,
   ay: number,
 ): { tx: number; ty: number } {
-  const reach = cfg.build.wall.buildReach;
+  const reach = cfg.build.reach;
   return { tx: Math.floor(x + ax * reach), ty: Math.floor(y + ay * reach) };
 }
 
 /**
- * Is the target tile a legal wall site? Rejects: solid terrain (#/~/OOB),
- * forest, an existing structure, a keep site or town tile, the exclusion zone
- * around any enemy keep, and any tile a living player currently stands on
- * (building must never trap someone).
+ * Is the target tile a legal build site (any kind)? Rejects: solid terrain
+ * (#/~/OOB), forest, an existing structure, a keep site or town tile, the
+ * exclusion zone around any enemy keep, and any tile a living player
+ * currently stands on (building must never trap someone).
  */
-export function canBuildWallAt(
+export function canBuildStructAt(
   world: World,
   cfg: GameConfig,
   map: MapData,
@@ -146,10 +178,27 @@ export function canBuildWallAt(
   return true;
 }
 
+/** Live structure on this exact tile, if any. */
+function structureAt(world: World, tx: number, ty: number): Structure | null {
+  for (const s of world.structures.values()) {
+    if (s.hp > 0 && s.tx === tx && s.ty === ty) return s;
+  }
+  return null;
+}
+
+/** The build intents, in priority order (a tick with several bits pressed
+ *  takes the first that's legal). Gate/tower are the Engineer's trade. */
+const BUILDABLES: ReadonlyArray<{ btn: number; kind: StructureKind; engineerOnly: boolean }> = [
+  { btn: BTN_BUILD, kind: STRUCT_WALL, engineerOnly: false },
+  { btn: BTN_BUILD_GATE, kind: STRUCT_GATE, engineerOnly: true },
+  { btn: BTN_BUILD_TOWER, kind: STRUCT_TOWER, engineerOnly: true },
+];
+const BUILD_MASK = BTN_BUILD | BTN_BUILD_GATE | BTN_BUILD_TOWER;
+
 /**
- * Supply generation + build placement. Runs after banking (build is another
- * stand-and-interact action) and mutates the passed occupancy set as walls go
- * up so two squadmates can't both drop a wall on the same tile in one tick.
+ * Supply generation + build placement + repair. Runs after banking and
+ * mutates the passed occupancy set as pieces go up, so two squadmates can't
+ * both drop one on the same tile in one tick.
  */
 export function stepStructures(
   world: World,
@@ -170,42 +219,72 @@ export function stepStructures(
     }
   }
 
-  // ---- build intent: edge-triggered, gated like a bomb throw (alive, live,
-  // idle, off cooldown, affordable, under the cap, on a legal tile).
-  const wall = cfg.build.wall;
-  const cdTicks = secToTicks(cfg, wall.buildCooldownSec);
+  const cdTicks = secToTicks(cfg, cfg.build.cooldownSec);
   for (const p of world.players.values()) {
     if (p.buildCd > 0) p.buildCd--;
-    const rising = (p.input.b & BTN_BUILD) !== 0 && (p.prevBuildB & BTN_BUILD) === 0;
+    const pressed = p.input.b & BUILD_MASK & ~(p.prevBuildB & BUILD_MASK);
     p.prevBuildB = p.input.b;
-    if (!rising || !p.alive || world.phase !== PHASE_LIVE) continue;
+    if (pressed === 0 || !p.alive || world.phase !== PHASE_LIVE) continue;
     if (p.buildCd > 0 || p.dashTicks > 0 || p.atkPhase !== ATK_IDLE) continue;
     const squad = world.squads[p.squad];
-    if (!squad || squad.supply < wall.cost || wallCount(world, p.squad) >= wall.maxCount) continue;
+    if (!squad) continue;
     const { tx, ty } = buildTargetTile(cfg, p.x, p.y, p.input.ax, p.input.ay);
-    if (!canBuildWallAt(world, cfg, map, occ, p.squad, tx, ty)) continue;
 
-    squad.supply -= wall.cost;
-    p.buildCd = cdTicks;
-    const st: Structure = {
-      id: world.nextId++,
-      kind: STRUCT_WALL,
-      squad: p.squad,
-      tx,
-      ty,
-      hp: wall.hp,
-      maxHp: wall.hp,
-    };
-    world.structures.set(st.id, st);
-    occ.add(tileIndex(map, tx, ty));
-    events.push({
-      k: 'structBuilt',
-      tk: world.tick,
-      id: st.id,
-      squad: p.squad,
-      kind: STRUCT_WALL,
-      x: tx + 0.5,
-      y: ty + 0.5,
-    });
+    // ---- repair: ANY build press aimed at a damaged OWN structure patches it
+    // (doc §9.1: every class does basic repairs; the Engineer does them 2x).
+    const target = structureAt(world, tx, ty);
+    if (target && target.squad === p.squad) {
+      if (target.hp >= target.maxHp || squad.supply < cfg.build.repair.cost) continue;
+      const factor = p.cls === 'engineer' ? cfg.build.repair.engineerFactor : 1;
+      const heal = Math.min(cfg.build.repair.hpPerHit * factor, target.maxHp - target.hp);
+      target.hp += heal;
+      squad.supply -= cfg.build.repair.cost;
+      p.buildCd = cdTicks;
+      events.push({
+        k: 'structRepaired',
+        tk: world.tick,
+        id: target.id,
+        squad: p.squad,
+        by: p.id,
+        hp: target.hp,
+        x: tx + 0.5,
+        y: ty + 0.5,
+      });
+      continue;
+    }
+
+    // ---- placement: first pressed intent this player may legally afford.
+    for (const b of BUILDABLES) {
+      if ((pressed & b.btn) === 0) continue;
+      if (b.engineerOnly && p.cls !== 'engineer') continue;
+      const kindCfg = structKindConfig(cfg, b.kind);
+      if (squad.supply < kindCfg.cost) continue;
+      if (structCount(world, p.squad, b.kind) >= kindCfg.maxCount) continue;
+      if (!canBuildStructAt(world, cfg, map, occ, p.squad, tx, ty)) continue;
+
+      squad.supply -= kindCfg.cost;
+      p.buildCd = cdTicks;
+      const st: Structure = {
+        id: world.nextId++,
+        kind: b.kind,
+        squad: p.squad,
+        tx,
+        ty,
+        hp: kindCfg.hp,
+        maxHp: kindCfg.hp,
+      };
+      world.structures.set(st.id, st);
+      occ.add(tileIndex(map, tx, ty));
+      events.push({
+        k: 'structBuilt',
+        tk: world.tick,
+        id: st.id,
+        squad: p.squad,
+        kind: b.kind,
+        x: tx + 0.5,
+        y: ty + 0.5,
+      });
+      break;
+    }
   }
 }

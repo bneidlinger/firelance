@@ -32,7 +32,7 @@ export interface ConnectionOpts {
   url: string;
   name: string;
   /** Preferred class, sent in the hello (server assigns a default when absent). */
-  cls?: 'fighter' | 'ranger';
+  cls?: 'fighter' | 'ranger' | 'engineer';
   /** Added round-trip latency in ms (half applied each direction). */
   fakelagMs: number;
   /** Random extra per-message delay in ms (uniform, half each direction). */

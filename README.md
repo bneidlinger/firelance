@@ -37,7 +37,9 @@ http://localhost:5173 and you're the 12th seat.
 | E (hold)           | claim a keep site (placement) / load gold / bank / rebuild |
 | F                  | lob a firebomb toward your aim (anti-structure)            |
 | B                  | build a wall at your aim (2 tiles out; costs build supply) |
-| 1 / 2              | switch to Fighter / Ranger at next respawn                 |
+| B (on own damage)  | repair the aimed structure (supply; Engineer patches 2x)   |
+| G / T              | Engineer only: build a gate / watchtower at your aim       |
+| 1 / 2 / 3          | switch to Fighter / Ranger / Engineer at next respawn      |
 | F3                 | netcode debug overlay                                      |
 
 Useful client URL params: `?name=Brandon` `?class=fighter` `?fakelag=120&jitter=30` `?nopredict`

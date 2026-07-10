@@ -4,6 +4,8 @@ import {
   BTN_BLOCK,
   BTN_BOMB,
   BTN_BUILD,
+  BTN_BUILD_GATE,
+  BTN_BUILD_TOWER,
   BTN_DASH,
   BTN_FIRE,
   BTN_INTERACT,
@@ -32,8 +34,11 @@ export class InputState {
       if (e.code === 'Space' || e.code === 'ShiftLeft') this.latched |= BTN_DASH;
       if (e.code === 'KeyF') this.latched |= BTN_BOMB; // tap-to-lob (edge-triggered sim-side)
       if (e.code === 'KeyB') this.latched |= BTN_BUILD; // tap-to-build a wall (edge-triggered)
+      if (e.code === 'KeyG') this.latched |= BTN_BUILD_GATE; // Engineer: gate
+      if (e.code === 'KeyT') this.latched |= BTN_BUILD_TOWER; // Engineer: watchtower
       if (e.code === 'Digit1') this.pendingClass = 'fighter';
       if (e.code === 'Digit2') this.pendingClass = 'ranger';
+      if (e.code === 'Digit3') this.pendingClass = 'engineer';
       if (e.code === 'Space') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -76,6 +81,8 @@ export class InputState {
     if (this.isDown('KeyE')) b |= BTN_INTERACT;
     if (this.isDown('KeyF')) b |= BTN_BOMB;
     if (this.isDown('KeyB')) b |= BTN_BUILD;
+    if (this.isDown('KeyG')) b |= BTN_BUILD_GATE;
+    if (this.isDown('KeyT')) b |= BTN_BUILD_TOWER;
     return { mx, my, b };
   }
 

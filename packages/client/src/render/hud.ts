@@ -53,7 +53,8 @@ export class Hud {
     fill.style.width = `${frac * 100}%`;
     fill.style.background = frac > 0.55 ? '#8fae6a' : frac > 0.28 ? '#e0b95e' : '#f05a4d';
 
-    el('selfclass').textContent = you.cls === 'fighter' ? '⚔ Fighter' : '➶ Ranger';
+    el('selfclass').textContent =
+      you.cls === 'fighter' ? '⚔ Fighter' : you.cls === 'engineer' ? '🔧 Engineer' : '➶ Ranger';
     const dash = el('dash');
     if (you.dashCd <= 0) {
       dash.textContent = 'DASH ready';
@@ -120,7 +121,8 @@ export class Hud {
     el('deathmsg').style.display = dead ? 'block' : 'none';
     if (dead) {
       const secs = Math.max(0, you.respIn / this.cfg.tick.simHz);
-      const sub = deadNote ?? `respawning in ${secs.toFixed(1)}s — press 1 Fighter · 2 Ranger`;
+      const sub =
+        deadNote ?? `respawning in ${secs.toFixed(1)}s — press 1 Fighter · 2 Ranger · 3 Engineer`;
       el('deathmsg').innerHTML =
         `${killerName ? `Slain by ${esc(killerName)}` : 'Slain'}<div class="sub">${sub}</div>`;
     }

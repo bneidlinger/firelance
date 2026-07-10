@@ -156,7 +156,7 @@ function meleeHitTest(
     }
     if (!tileRayClear(map, attacker.x, attacker.y, cx, cy)) continue;
     attacker.atkHitIds.push(pseudoId);
-    damageStructure(world, s, cfg.build.wall.meleeDamage, events);
+    damageStructure(world, s, cfg.build.meleeChip, events);
   }
 }
 

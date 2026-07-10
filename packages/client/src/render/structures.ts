@@ -1,12 +1,14 @@
 import { Container, Graphics } from 'pixi.js';
 import type { StructSnap } from '@shared/net/messages';
+import { STRUCT_GATE, STRUCT_TOWER } from '@shared/sim/world';
 import { SQUAD_COLORS, TILE } from './scene';
 
-// Walls (M4 s1): squad-colored stone tiles. Own walls read bright with a bold
-// edge; enemy walls (only sent once you've seen them) sit a shade dimmer.
-// Damage darkens the fill and cracks it — a wall about to fall looks it.
-// Renders straight from the newest snapshot's visible set, exactly like sacks:
-// fog entry/exit is just presence/absence, no lerp.
+// Structures (M4): squad-colored tiles. Walls read as stone, gates as a
+// door (posts + crossbar — YOUR squad walks through its own), towers as a
+// round lookout with braces. Own pieces bright with a bold edge; enemy pieces
+// (only sent once seen) a shade dimmer. Damage dims the fill and cracks it.
+// Renders straight from the newest snapshot's visible set, exactly like
+// sacks: fog entry/exit is just presence/absence, no lerp.
 
 interface StructSprite {
   g: Graphics;
@@ -53,20 +55,50 @@ export class StructureLayer {
     const base = SQUAD_COLORS[s.s] ?? 0x8a8a80;
     const own = s.s === ownSquad;
     const frac = Math.max(0, Math.min(1, s.mx > 0 ? s.hp / s.mx : 1));
-    // Fill dims as the wall takes damage; enemy walls a touch fainter than own.
-    g.rect(1, 1, TILE - 2, TILE - 2).fill({
-      color: base,
-      alpha: (own ? 0.85 : 0.7) * (0.4 + 0.6 * frac),
-    });
-    g.rect(0.5, 0.5, TILE - 1, TILE - 1).stroke({ width: own ? 2 : 1.5, color: base, alpha: 0.95 });
-    // Mortar seams so it reads as stone, not a floor tile.
-    g.moveTo(2, TILE / 2)
-      .lineTo(TILE - 2, TILE / 2)
-      .stroke({ width: 1, color: 0x14170f, alpha: 0.4 });
-    g.moveTo(TILE / 2, 2)
-      .lineTo(TILE / 2, TILE - 2)
-      .stroke({ width: 1, color: 0x14170f, alpha: 0.25 });
-    // A crack once it's below half — the "one more bomb" tell.
+    const fillAlpha = (own ? 0.85 : 0.7) * (0.4 + 0.6 * frac);
+
+    if (s.k === STRUCT_GATE) {
+      // A door: two posts + a crossbar with a visible gap under it. Own gates
+      // are literally walkable — the open middle says so.
+      g.rect(0.5, 0.5, 3, TILE - 1).fill({ color: base, alpha: fillAlpha });
+      g.rect(TILE - 3.5, 0.5, 3, TILE - 1).fill({ color: base, alpha: fillAlpha });
+      g.rect(2, 1.5, TILE - 4, 3).fill({ color: base, alpha: fillAlpha });
+      g.rect(0.5, 0.5, TILE - 1, TILE - 1).stroke({
+        width: own ? 2 : 1.5,
+        color: base,
+        alpha: 0.95,
+      });
+    } else if (s.k === STRUCT_TOWER) {
+      // A lookout: round platform + cross braces; a dot for the sentry.
+      g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).fill({ color: base, alpha: fillAlpha });
+      g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).stroke({
+        width: own ? 2 : 1.5,
+        color: base,
+        alpha: 0.95,
+      });
+      g.moveTo(2.5, 2.5)
+        .lineTo(TILE - 2.5, TILE - 2.5)
+        .moveTo(TILE - 2.5, 2.5)
+        .lineTo(2.5, TILE - 2.5)
+        .stroke({ width: 1, color: 0x14170f, alpha: 0.35 });
+      g.circle(TILE / 2, TILE / 2, 1.6).fill({ color: 0x14170f, alpha: 0.7 });
+    } else {
+      // The wall: stone tile with mortar seams.
+      g.rect(1, 1, TILE - 2, TILE - 2).fill({ color: base, alpha: fillAlpha });
+      g.rect(0.5, 0.5, TILE - 1, TILE - 1).stroke({
+        width: own ? 2 : 1.5,
+        color: base,
+        alpha: 0.95,
+      });
+      g.moveTo(2, TILE / 2)
+        .lineTo(TILE - 2, TILE / 2)
+        .stroke({ width: 1, color: 0x14170f, alpha: 0.4 });
+      g.moveTo(TILE / 2, 2)
+        .lineTo(TILE / 2, TILE - 2)
+        .stroke({ width: 1, color: 0x14170f, alpha: 0.25 });
+    }
+
+    // A crack once it's below half — the "one more bomb" tell (any kind).
     if (frac < 0.5) {
       g.moveTo(3, 2)
         .lineTo(TILE - 4, TILE - 3)

@@ -10,6 +10,8 @@ export type {
   BowConfig,
   DashConfig,
   ShieldConfig,
+  BuildConfig,
+  StructKindConfig,
 } from './types';
 export { getKit, secToTicks } from './types';
 export { defaultConfig } from './default';
@@ -51,11 +53,12 @@ export const smokeConfig: GameConfig = defineConfig({
   player: { respawnSec: 4 },
 });
 
-/** Browser-verification preset: a long placement window so scripted claims
- *  survive slow automation cadence. Never used for real matches or CI. */
+/** Browser-verification preset: placement long enough for a scripted claim
+ *  walk, short enough that live-phase checks start promptly. Never used for
+ *  real matches or CI. */
 export const verifyConfig: GameConfig = defineConfig({
   name: 'verify',
-  match: { durationSec: 8 * 60, placementSec: 120, countdownSec: 5 },
+  match: { durationSec: 8 * 60, placementSec: 30, countdownSec: 5 },
 });
 
 const presets: Record<string, GameConfig> = {

@@ -2,6 +2,7 @@ import type { GameConfig } from '../config';
 import type { MapData } from '../map/types';
 import { isVisionBlocked } from '../map/types';
 import type { World } from './world';
+import { STRUCT_TOWER } from './world';
 
 // The ONE visibility function. The server filters snapshots through it (so
 // wallhacks are architecturally impossible) and the client draws its fog mask
@@ -92,7 +93,9 @@ export function canSeePoint(
   return tileRayClear(map, vx, vy, px, py, occ);
 }
 
-/** Union of what every living member of the squad can see. */
+/** Union of what every living member of the squad can see — plus its
+ *  watchtowers (M4 s3): a tower is a static viewer with player vision rules
+ *  (radius, rays, forest), and never anything more. Information, not damage. */
 export function isVisibleToSquad(
   world: World,
   map: MapData,
@@ -105,6 +108,10 @@ export function isVisibleToSquad(
   for (const p of world.players.values()) {
     if (p.squad !== squadId || !p.alive) continue;
     if (canSeePoint(map, cfg, p.x, p.y, px, py, occ)) return true;
+  }
+  for (const s of world.structures.values()) {
+    if (s.squad !== squadId || s.kind !== STRUCT_TOWER || s.hp <= 0) continue;
+    if (canSeePoint(map, cfg, s.tx + 0.5, s.ty + 0.5, px, py, occ)) return true;
   }
   return false;
 }

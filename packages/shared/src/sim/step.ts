@@ -14,7 +14,7 @@ import { stepBanking } from './systems/banking';
 import { stepClaims } from './systems/claims';
 import { stepLifecycle } from './systems/lifecycle';
 import { stepPhase } from './systems/phase';
-import { buildOccupancy, stepStructures } from './systems/structures';
+import { buildOccupancy, moveOccupancyFor, stepStructures } from './systems/structures';
 
 /**
  * The authoritative simulation entry point. Runs ONLY on the server; the
@@ -44,15 +44,22 @@ export function stepWorld(
   const events: SimEvent[] = [];
 
   if (world.phase !== PHASE_ENDED) {
-    // Structures occupy tiles for BOTH collision and vision this tick; the
-    // client rebuilds the identical set from its snapshot so walls predict.
-    // stepStructures may mutate it as new walls go up (they block next tick).
+    // Structures occupy tiles this tick. TWO layers (M4 s3): the FULL set for
+    // vision rays, projectiles, and melee LOS — and a per-squad MOVE set that
+    // excludes that squad's own gates (a door for your bodies, a wall for
+    // theirs). The client rebuilds both identically from its snapshot, so
+    // wall collision AND gate-walking predict bit-exactly. stepStructures
+    // mutates the full set as new pieces go up (they block next tick).
     const occ = buildOccupancy(world, map.width);
+    const occMove: Array<Set<number>> = [];
+    for (let s = 0; s < world.squads.length; s++) {
+      occMove.push(moveOccupancyFor(world, map.width, s));
+    }
 
     // Apply fresh inputs (players keep their last input when none arrived —
     // TCP delays inputs, it never drops them) and integrate movement.
     const paramsByClass = new Map<ClassId, MoveParams>();
-    const alive: Array<{ x: number; y: number }> = [];
+    const alive: Array<{ x: number; y: number; squad: number }> = [];
     for (const p of world.players.values()) {
       const cmd = inputs.get(p.id);
       if (cmd) p.input = cmd;
@@ -62,12 +69,20 @@ export function stepWorld(
         params = kitMoveParams(cfg, p.cls);
         paramsByClass.set(p.cls, params);
       }
-      stepMovement(p, p.input, params, map, dt, carrySpeedFactor(cfg, p.carried), occ);
+      stepMovement(
+        p,
+        p.input,
+        params,
+        map,
+        dt,
+        carrySpeedFactor(cfg, p.carried),
+        occMove[p.squad] ?? occ,
+      );
       alive.push(p);
     }
 
     // Bodies occupy space: body-blocking bridges/gates is design-load-bearing.
-    pushoutPairs(alive, cfg.player.radius, map, occ);
+    pushoutPairs(alive, cfg.player.radius, map, occ, (i) => occMove[alive[i]!.squad] ?? occ);
 
     stepAttacks(world, cfg, map, events, occ);
     stepProjectiles(world, cfg, map, events, occ);

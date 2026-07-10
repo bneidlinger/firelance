@@ -78,6 +78,17 @@ export type SimEvent =
       x: number;
       y: number;
     }
+  /** A build press patched a damaged own structure — POSITIONAL (hp = after). */
+  | {
+      k: 'structRepaired';
+      tk: number;
+      id: number;
+      squad: number;
+      by: number;
+      hp: number;
+      x: number;
+      y: number;
+    }
   // -- lifecycle
   | { k: 'respawn'; tk: number; id: number; squad: number; x: number; y: number }
   // -- economy, global (bounty is public info)
