@@ -24,6 +24,7 @@ import {
   STRUCT_TOWER,
   STRUCT_TRAP,
 } from '@shared/sim/world';
+import { canSeePoint } from '@shared/sim/vision';
 import { sfx, unlockAudio } from './audio/sfx';
 import { InputState } from './input/input';
 import { Connection } from './net/connection';
@@ -33,6 +34,7 @@ import { BombLayer } from './render/bombs';
 import { EntityLayer, type OwnVisual } from './render/entities';
 import { FogLayer } from './render/fog';
 import { FxLayer } from './render/fx';
+import { GhostMemory } from './render/ghosts';
 import { Hud, TIER_COLORS, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
@@ -81,6 +83,8 @@ interface GameState {
   /** Rumor pings — a second fx pool on the ABOVE-FOG layer (gossip marks
    *  places nobody can see; the fog must not swallow it). */
   pings: FxLayer;
+  /** Last-known enemy structures (M5) — rendered dimmed under fog. */
+  ghosts: GhostMemory;
   fog: FogLayer;
   hud: Hud;
   /** FULL structure occupancy from the newest snapshot — the fog mask's
@@ -518,6 +522,8 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'structDestroyed':
       game.fx.explosion(ev.x, ev.y);
+      // The memory is certain now — no ghost should outlive the rubble.
+      game.ghosts.forget(ev.id);
       break;
     case 'structRepaired':
       game.fx.hitSpark(ev.x, ev.y, true); // the mason's clink
@@ -605,6 +611,7 @@ async function setupScene(
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     fx: new FxLayer(scene.fxLayer),
     pings: new FxLayer(scene.pingLayer),
+    ghosts: new GhostMemory(),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
     structOcc: null,
@@ -718,7 +725,39 @@ function frame(now: number): void {
 
   game.entities.sync(visible, roster, game.ownId, ownVisual);
   game.sacks.sync(interp.sacks, now);
-  game.structures.sync(interp.structures, game.ownSquad);
+
+  // ---- squad viewers, shared by the fog mask, ghost expiry, and towers
+  // (M4 s3): own predicted pos + ally snapshot positions + own watchtowers.
+  const viewers: Array<{ x: number; y: number }> = [];
+  if (ownPos && game.prediction.alive) viewers.push(ownPos);
+  for (const [id, e] of visible) {
+    if (id !== game.ownId && roster.get(id)?.squad === game.ownSquad) {
+      viewers.push({ x: e.x, y: e.y });
+    }
+  }
+  for (const s of interp.structures) {
+    if (s.k === STRUCT_TOWER && s.s === game.ownSquad) {
+      viewers.push({ x: s.tx + 0.5, y: s.ty + 0.5 });
+    }
+  }
+
+  // ---- structure ghosts (M5): remember enemy pieces the fog re-covered;
+  // eyes-on an empty tile forgets them. MUST share the fog's visibility
+  // (same canSeePoint, same occupancy) or ghosts contradict the mask.
+  const visibleTile = (tx: number, ty: number): boolean => {
+    const cx = tx + 0.5;
+    const cy = ty + 0.5;
+    const r2 = game!.cfg.vision.radius ** 2;
+    for (const v of viewers) {
+      const dx = cx - v.x;
+      const dy = cy - v.y;
+      if (dx * dx + dy * dy > r2) continue;
+      if (canSeePoint(game!.map, game!.cfg, v.x, v.y, cx, cy, game!.structOcc)) return true;
+    }
+    return false;
+  };
+  const ghostList = game.ghosts.update(interp.structures, game.ownSquad, visibleTile);
+  game.structures.sync(interp.structures, game.ownSquad, ghostList);
   if (ownPos) scene.follow(ownPos.x, ownPos.y);
 
   // ---- contextual banking prompt (the "how do I bank" tutorial, in place)
@@ -733,20 +772,7 @@ function frame(now: number): void {
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
 
-  // ---- fog from own squad's living viewers (same function as the server) —
-  // plus our watchtowers (M4 s3): static extra eyes, exactly like the sim.
-  const viewers: Array<{ x: number; y: number }> = [];
-  if (ownPos && game.prediction.alive) viewers.push(ownPos);
-  for (const [id, e] of visible) {
-    if (id !== game.ownId && roster.get(id)?.squad === game.ownSquad) {
-      viewers.push({ x: e.x, y: e.y });
-    }
-  }
-  for (const s of interp.structures) {
-    if (s.k === STRUCT_TOWER && s.s === game.ownSquad) {
-      viewers.push({ x: s.tx + 0.5, y: s.ty + 0.5 });
-    }
-  }
+  // ---- fog from the same squad viewers computed above.
   game.fog.update(now, viewers, game.structOcc);
 
   // ---- overlay (4Hz)
@@ -1051,6 +1077,8 @@ window.__fl = {
     mapDraw: game
       ? { sites: game.map.keeps, towns: game.map.towns, spawns: game.map.spawns }
       : null,
+    // Remembered enemy structures currently rendered as ghosts (M5 s3).
+    ghostStructs: game ? game.ghosts.ids() : null,
     structures: game
       ? interp.structures.map((s) => ({
           i: s.i,

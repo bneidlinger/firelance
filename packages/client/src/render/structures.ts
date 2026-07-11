@@ -16,6 +16,8 @@ interface StructSprite {
   hp: number;
   squad: number;
   arming: boolean;
+  /** Drawn from ghost memory (M5) — dimmed last-known state, not live wire. */
+  ghost: boolean;
 }
 
 export class StructureLayer {
@@ -28,22 +30,35 @@ export class StructureLayer {
     this.sprites.clear();
   }
 
-  sync(structs: StructSnap[], ownSquad: number): void {
+  sync(structs: StructSnap[], ownSquad: number, ghosts: StructSnap[] = []): void {
     const seen = new Set<number>();
-    for (const s of structs) {
+    const put = (s: StructSnap, ghost: boolean): void => {
       seen.add(s.i);
-      let sp = this.sprites.get(s.i);
-      // Redraw on hp change (damage tint), owner change, or a trap arming.
-      if (sp && sp.hp === s.hp && sp.squad === s.s && sp.arming === (s.ar === 1)) continue;
+      const sp = this.sprites.get(s.i);
+      // Redraw on hp change (damage tint), owner change, a trap arming, or a
+      // live piece fading into memory (and back).
+      if (
+        sp &&
+        sp.hp === s.hp &&
+        sp.squad === s.s &&
+        sp.arming === (s.ar === 1) &&
+        sp.ghost === ghost
+      ) {
+        return;
+      }
       if (sp) {
         sp.g.destroy();
         this.sprites.delete(s.i);
       }
       const g = this.draw(s, ownSquad);
       g.position.set(s.tx * TILE, s.ty * TILE);
+      // A ghost is a memory: faded, and visually behind whatever is live.
+      if (ghost) g.alpha = 0.42;
       this.container.addChild(g);
-      this.sprites.set(s.i, { g, hp: s.hp, squad: s.s, arming: s.ar === 1 });
-    }
+      this.sprites.set(s.i, { g, hp: s.hp, squad: s.s, arming: s.ar === 1, ghost });
+    };
+    for (const s of structs) put(s, false);
+    for (const s of ghosts) if (!seen.has(s.i)) put(s, true);
     for (const [id, sp] of this.sprites) {
       if (!seen.has(id)) {
         sp.g.destroy();
