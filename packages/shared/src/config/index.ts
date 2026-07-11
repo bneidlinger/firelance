@@ -40,26 +40,39 @@ export function defineConfig(overrides: DeepPartial<GameConfig>): GameConfig {
   return deepMerge(defaultConfig, overrides);
 }
 
-/** Compressed preset for fast playtest iteration (~8 min matches). */
+/** Compressed preset for fast playtest iteration (~8 min matches).
+ *  Inherits variation ON — playtest nights get a fresh board every match;
+ *  pinned-seed tests that want the authored layout override it off. */
 export const prototypeConfig: GameConfig = defineConfig({
   name: 'prototype',
   match: { durationSec: 8 * 60, placementSec: 20, countdownSec: 5 },
 });
 
-/** Tiny preset for CI smoke matches (2–3 min game time, instant start). */
+/** Tiny preset for CI smoke matches (2–3 min game time, instant start).
+ *  Variation off: smoke asserts against the authored layout. */
 export const smokeConfig: GameConfig = defineConfig({
   name: 'smoke',
   match: { durationSec: 150, placementSec: 0, countdownSec: 0, restartSec: 5 },
   // Fast respawns keep combat flowing in compressed matches.
   player: { respawnSec: 4 },
+  variation: { enabled: false },
 });
 
 /** Browser-verification preset: placement long enough for a scripted claim
  *  walk, short enough that live-phase checks start promptly. Never used for
- *  real matches or CI. */
+ *  real matches or CI. Variation off: automation scripts walk known routes. */
 export const verifyConfig: GameConfig = defineConfig({
   name: 'verify',
   match: { durationSec: 8 * 60, placementSec: 30, countdownSec: 5 },
+  variation: { enabled: false },
+});
+
+/** M5 browser-verification preset: variation ON with a full match cycle
+ *  (placement → live → restart) inside ~2 wall-minutes, so an automation
+ *  session can watch CONSECUTIVE matches draw different boards. */
+export const verify5Config: GameConfig = defineConfig({
+  name: 'verify5',
+  match: { durationSec: 90, placementSec: 15, countdownSec: 3, restartSec: 8 },
 });
 
 const presets: Record<string, GameConfig> = {
@@ -67,6 +80,7 @@ const presets: Record<string, GameConfig> = {
   prototype: prototypeConfig,
   smoke: smokeConfig,
   verify: verifyConfig,
+  verify5: verify5Config,
 };
 
 export function getConfigPreset(name: string): GameConfig {

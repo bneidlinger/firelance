@@ -39,8 +39,13 @@ const match = new Match({
   cfg,
   map,
   seed,
-  onRestart: (s) => console.log(`[server] match restarted (seed ${s})`),
+  onRestart: (s) => console.log(`[server] match restarted (seed ${s}) — ${describeDraw()}`),
 });
+/** One line of "which board are we on" — sites/towns are the M5 per-match draw. */
+function describeDraw(): string {
+  const v = match.variant;
+  return `draw: sites [${v.keeps.join(',')}] towns [${v.towns.join(',')}] spawns [${v.spawns.join(',')}]`;
+}
 
 // In-process bots fill seats from the start (plan: any 0–12 human mix is a
 // valid playtest). They speak the same protocol over LocalTransport. Humans
@@ -89,6 +94,7 @@ wss.on('connection', (ws, req) => {
 httpServer.listen(port, () => {
   console.log(
     `[server] firelance up on ws://localhost:${port} — config=${cfg.name} seed=${seed} bots=${botCount} map=${map.id}` +
+      ` — ${describeDraw()}` +
       (haveClient ? ` — serving client from ${staticDir}` : ' — no client build found (ws only)'),
   );
 });

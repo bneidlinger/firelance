@@ -18,6 +18,7 @@ const SERVER_SAMPLES: ServerMsg[] = [
     playerId: 3,
     squadId: 1,
     mapId: 'scrim_small',
+    variant: { keeps: [0, 1, 2, 4, 6], towns: [1], spawns: [2, 0, 3, 1] },
     cfgName: 'prototype',
     cfgHash: 'abc123',
     tick: 42,
@@ -199,6 +200,12 @@ describe('codec rejects malformed input', () => {
     expect(decodeClientMsg('{"t":"hello","v":1,"name":"x","cls":"wizard"}').ok).toBe(false);
     expect(decodeClientMsg('{"t":"class","cls":"wizard"}').ok).toBe(false);
     expect(decodeClientMsg('{"t":"class","cls":42}').ok).toBe(false);
+  });
+
+  it('welcome without a map variant (pre-v10 server)', () => {
+    const legacy = { ...SERVER_SAMPLES[0]! } as Record<string, unknown>;
+    delete legacy.variant;
+    expect(decodeServerMsg(JSON.stringify(legacy)).ok).toBe(false);
   });
 
   it('bad resume tokens', () => {

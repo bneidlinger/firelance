@@ -1,6 +1,7 @@
 import { configHash, getConfigPreset, getKit, secToTicks, type GameConfig } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
+import { applyVariant } from '@shared/map/variant';
 import type { KeepSnap, NetEvent, RosterEntry, ServerMsg, YouSnap } from '@shared/net/messages';
 import {
   ST_ACTIVE,
@@ -175,7 +176,9 @@ function handleServer(msg: ServerMsg): void {
         showBanner('config drift: client and server disagree — rebuild');
         return;
       }
-      const map = getMap(msg.mapId);
+      // Variant-applied: this match's active sites, open towns, and muster
+      // corners. Rendering and prediction downstream never see the base map.
+      const map = applyVariant(getMap(msg.mapId), msg.variant);
       roster.clear();
       for (const r of msg.roster) roster.set(r.id, r);
       // NOTE: `seq` deliberately does NOT reset here. The server gives every
@@ -980,6 +983,11 @@ window.__fl = {
       : null,
     keeps: game
       ? [...game.keepInfo.entries()].map(([squad, k]) => ({ squad, x: k.x, y: k.y, hp: k.hp }))
+      : null,
+    // This match's map draw (M5 variation) — the browser-verification probe
+    // for "consecutive matches play differently".
+    mapDraw: game
+      ? { sites: game.map.keeps, towns: game.map.towns, spawns: game.map.spawns }
       : null,
     structures: game
       ? interp.structures.map((s) => ({

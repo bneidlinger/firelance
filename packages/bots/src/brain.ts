@@ -1,6 +1,7 @@
 import { getConfigPreset, getKit, type GameConfig } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
+import { applyVariant } from '@shared/map/variant';
 import { solveIntercept } from '@shared/math/intercept';
 import { createRng, rngFloat, rngInt, type RngState } from '@shared/math/rng';
 import type {
@@ -256,7 +257,9 @@ export class BotBrain {
         // Fresh world (first join OR match auto-restart): reset everything.
         this.myId = msg.playerId;
         this.mySquad = msg.squadId;
-        this.map = getMap(msg.mapId);
+        // The variant-applied map IS the map: only this match's active sites
+        // and open towns exist as far as claim/bank targeting is concerned.
+        this.map = applyVariant(getMap(msg.mapId), msg.variant);
         try {
           this.cfg = getConfigPreset(msg.cfgName);
         } catch {

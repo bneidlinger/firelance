@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getConfigPreset, getKit } from '@shared/config';
 import { getMap } from '@shared/map/maps';
+import { identityVariant } from '@shared/map/variant';
 import type { KeepSnap, SackSnap, ServerMsg, StructSnap, YouSnap } from '@shared/net/messages';
 import { ST_CARRYING } from '@shared/net/messages';
 import {
@@ -43,6 +44,7 @@ function welcome(brain: BotBrain, o: WelcomeOpts = {}): void {
     playerId: o.playerId ?? 1,
     squadId: o.squadId ?? 0,
     mapId: 'scrim_small',
+    variant: identityVariant(scrim),
     cfgName: cfg.name,
     cfgHash: 'x',
     tick: 0,

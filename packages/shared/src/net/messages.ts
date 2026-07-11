@@ -4,9 +4,10 @@
 // later touches exactly two functions.
 
 import type { ClassId } from '../config';
+import type { MapVariant } from '../map/variant';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 // ---------------------------------------------------------------- client → server
 
@@ -74,6 +75,10 @@ export interface WelcomeMsg {
   playerId: number;
   squadId: number;
   mapId: string;
+  /** This match's map draw — apply to the base map via applyVariant BEFORE
+   *  using keeps/towns/spawns for anything (M5: sites/towns/spawn corners
+   *  vary per match; the descriptor travels, the seed never does). */
+  variant: MapVariant;
   cfgName: string;
   cfgHash: string;
   tick: number;

@@ -239,6 +239,19 @@ export interface GameConfig {
   };
 
   build: BuildConfig;
+
+  /** Per-match map variation (M5) — see map/variant.ts for the draw rules. */
+  variation: {
+    /** Master switch. Off reproduces the authored map exactly (M0–M4). */
+    enabled: boolean;
+    /** Non-anchor keep sites active per match (each squad's nearest-to-spawn
+     *  anchor is always active on top of these). */
+    extraSites: number;
+    /** Towns open per match (clamped to [1, map towns]). */
+    townsActive: number;
+    /** Shuffle which map spawn corner each squad musters at. */
+    shuffleSpawns: boolean;
+  };
 }
 
 export type GameConfigOverrides = DeepPartial<GameConfig>;

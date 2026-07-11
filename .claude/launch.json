@@ -57,6 +57,27 @@
       "port": 8789
     },
     {
+      "name": "verify-m5",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "packages/server/src/index.ts",
+        "--port",
+        "8791",
+        "--config",
+        "verify5",
+        "--bots",
+        "11",
+        "--seed",
+        "7",
+        "--map",
+        "vale_full",
+        "--static",
+        "packages/client/dist"
+      ],
+      "port": 8791
+    },
+    {
       "name": "verify-m4",
       "runtimeExecutable": "npx",
       "runtimeArgs": [

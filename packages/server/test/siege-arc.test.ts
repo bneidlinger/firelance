@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getConfigPreset } from '@shared/config';
+import { getConfigPreset, type GameConfig } from '@shared/config';
 import { runInProcessMatch } from '../src/harness';
 
 // The M3 acceptance run: one full prototype-length 12-bot match on a pinned
@@ -11,6 +11,13 @@ import { runInProcessMatch } from '../src/harness';
 // 4 → 20 for M4 s5 (claim/build/bump behaviors shift every bot's rng stream;
 // the rebuild beat stays ~30% seed-luck — 16/17/19/20/21/25/26/28/29 all
 // pass, 20 has a rich arc). Expect to re-pin on any bot-behavior change.
+//
+// Variation is forced OFF: this pins a bot-behavior ARC on the authored
+// layout. M5's per-match map draw gets its own tests (variation.test.ts).
+const cfg: GameConfig = {
+  ...getConfigPreset('prototype'),
+  variation: { ...getConfigPreset('prototype').variation, enabled: false },
+};
 
 describe('full siege arc (prototype config, pinned seed)', () => {
   it('seed 20: keeps fall, a squad rebuilds, eliminations end the match early', async () => {
@@ -18,7 +25,7 @@ describe('full siege arc (prototype config, pinned seed)', () => {
       bots: 12,
       simSeconds: 505,
       seed: 20,
-      cfg: getConfigPreset('prototype'),
+      cfg,
     });
 
     // Invariants held every tick through the whole arc (conservation across

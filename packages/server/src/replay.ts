@@ -1,5 +1,6 @@
 import type { ClassId, GameConfig } from '@shared/config';
 import type { MapData } from '@shared/map/types';
+import { applyVariant, deriveVariant } from '@shared/map/variant';
 import { stepWorld } from '@shared/sim/step';
 import { removePlayerSpillingGold } from '@shared/sim/systems/economy';
 import type { InputCmd, Player, PlayerId } from '@shared/sim/world';
@@ -88,14 +89,17 @@ export class ReplayRecorder {
 
 /**
  * Re-run a recorded match and return the final world hash. Joins/leaves/class
- * switches apply between ticks exactly where they happened live.
+ * switches apply between ticks exactly where they happened live. Takes the
+ * BASE map: the per-match variant re-derives from the recorded seed here,
+ * exactly as the live Match derived it.
  */
 export function replayToHash(
   record: ReplayRecord,
   cfg: GameConfig,
-  map: MapData,
+  baseMap: MapData,
   ticks: number,
 ): string {
+  const map = applyVariant(baseMap, deriveVariant(record.seed, cfg, baseMap));
   const world = createWorld(record.seed, cfg, map);
   let joinIdx = 0;
   let leaveIdx = 0;

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { configHash, type ClassId, type GameConfig } from '@shared/config';
 import { secToTicks } from '@shared/config';
 import type { MapData } from '@shared/map/types';
+import { applyVariant, deriveVariant, type MapVariant } from '@shared/map/variant';
 import { decodeClientMsg, encodeMsg } from '@shared/net/codec';
 import type {
   HelloMsg,
@@ -65,7 +66,10 @@ export interface MatchOpts {
  */
 export class Match {
   readonly cfg: GameConfig;
-  readonly map: MapData;
+  /** The authored map; every world plays on a per-seed VARIANT of it. */
+  private readonly baseMap: MapData;
+  private variantState: MapVariant;
+  private mapState: MapData;
   private readonly opts: MatchOpts;
   private readonly cfgHashValue: string;
   private readonly seats = new Map<PlayerId, Seat>();
@@ -85,13 +89,28 @@ export class Match {
   constructor(opts: MatchOpts) {
     this.opts = opts;
     this.cfg = opts.cfg;
-    this.map = opts.map;
+    this.baseMap = opts.map;
     this.currentSeed = opts.seed;
-    this.worldState = createWorld(opts.seed, opts.cfg, opts.map);
+    // The match seed draws this match's map variant; restart() re-draws with
+    // the next seed — consecutive matches on one server stop looking alike.
+    this.variantState = deriveVariant(opts.seed, opts.cfg, opts.map);
+    this.mapState = applyVariant(opts.map, this.variantState);
+    this.worldState = createWorld(opts.seed, opts.cfg, this.mapState);
     this.cfgHashValue = configHash(opts.cfg);
     this.recorderState = opts.record
       ? new ReplayRecorder(opts.seed, opts.cfg.name, opts.map.id)
       : null;
+  }
+
+  /** THE map this match plays on (already variant-applied). Everything in
+   *  and around the match — sim, fog, snapshots, harness — reads this;
+   *  only welcome-building and replay records reference the base. */
+  get map(): MapData {
+    return this.mapState;
+  }
+
+  get variant(): MapVariant {
+    return this.variantState;
   }
 
   get world(): World {
@@ -280,6 +299,7 @@ export class Match {
       playerId: seat.id,
       squadId: seat.squad,
       mapId: this.map.id,
+      variant: this.variantState,
       cfgName: this.cfg.name,
       cfgHash: this.cfgHashValue,
       tick: this.worldState.tick,
@@ -618,10 +638,14 @@ export class Match {
     }
   }
 
-  /** End screen elapsed: rebuild the world, re-seat everyone, fresh welcomes. */
+  /** End screen elapsed: rebuild the world, re-seat everyone, fresh welcomes.
+   *  The bumped seed re-draws the map variant — the next match opens on a
+   *  different board (M5 gate: consecutive matches must play differently). */
   private restart(): void {
     this.currentSeed++;
-    this.worldState = createWorld(this.currentSeed, this.cfg, this.map);
+    this.variantState = deriveVariant(this.currentSeed, this.cfg, this.baseMap);
+    this.mapState = applyVariant(this.baseMap, this.variantState);
+    this.worldState = createWorld(this.currentSeed, this.cfg, this.mapState);
     this.pendingEvents = [];
     // Limbo seats belong to the old world; a returner just joins fresh.
     this.limbo.clear();

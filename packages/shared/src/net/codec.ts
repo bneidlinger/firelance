@@ -79,16 +79,23 @@ export function decodeServerMsg(data: unknown): DecodeResult<ServerMsg> {
   }
   // Server is trusted by clients; structural spot-checks only.
   switch (m.t) {
-    case 'welcome':
+    case 'welcome': {
+      const v = m.variant as Record<string, unknown> | undefined;
       if (
         !isFiniteNumber(m.playerId) ||
         !isFiniteNumber(m.tick) ||
         !Array.isArray(m.roster) ||
-        !Array.isArray(m.keeps)
+        !Array.isArray(m.keeps) ||
+        typeof v !== 'object' ||
+        v === null ||
+        !Array.isArray(v.keeps) ||
+        !Array.isArray(v.towns) ||
+        !Array.isArray(v.spawns)
       ) {
         return { ok: false, error: 'welcome: bad shape' };
       }
       break;
+    }
     case 'snap':
       if (
         !isFiniteNumber(m.tick) ||

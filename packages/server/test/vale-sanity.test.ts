@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getConfigPreset } from '@shared/config';
+import { getConfigPreset, type GameConfig } from '@shared/config';
 import { runInProcessMatch } from '../src/harness';
 
 // The M4 s5 acceptance run: 12 bots on the FULL-SIZE map with the complete
@@ -7,6 +7,13 @@ import { runInProcessMatch } from '../src/harness';
 // banking across real distances — all under the every-tick invariant suite.
 // (Pinned seed: same policy as siege-arc; expect to re-pin on bot changes.
 // Seed 24 at 300 sim-seconds: structs [24,4,4,17], 4 claims, 5 trap bites.)
+//
+// Variation forced OFF — this pins the authored vale layout; the per-match
+// draw is covered by variation.test.ts.
+const cfg: GameConfig = {
+  ...getConfigPreset('prototype'),
+  variation: { ...getConfigPreset('prototype').variation, enabled: false },
+};
 
 describe('vale_full 12-bot ecology (pinned seed)', () => {
   it('seed 24: claims, forts, trap bites, and banking — invariants clean', async () => {
@@ -14,7 +21,7 @@ describe('vale_full 12-bot ecology (pinned seed)', () => {
       bots: 12,
       simSeconds: 300,
       seed: 24,
-      cfg: getConfigPreset('prototype'),
+      cfg,
       mapId: 'vale_full',
     });
 

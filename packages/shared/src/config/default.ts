@@ -146,4 +146,14 @@ export const defaultConfig: GameConfig = {
     // specialist keeps a fort standing on half the supply bill.
     repair: { hpPerHit: 25, cost: 4, engineerFactor: 2 },
   },
+  // Per-match map draw (M5, doc §13.2): on vale_full this is 4 anchors +
+  // 3 of 6 contested sites, 2 of 3 towns open, shuffled muster corners —
+  // consecutive matches on one server stop sharing an opening. Pinned-seed
+  // tests and the smoke/verify presets turn this OFF (known layouts).
+  variation: {
+    enabled: true,
+    extraSites: 3,
+    townsActive: 2,
+    shuffleSpawns: true,
+  },
 };
