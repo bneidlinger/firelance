@@ -9,8 +9,8 @@ import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, PHASE_PLACEMENT } from '@shar
 // contextual banking prompts, death overlay, end screen, toasts, vignette.
 // DOM beats canvas text for iteration speed at this stage.
 
-const TIER_NAMES = ['Nobody', 'Known', 'Wanted', 'Hunted', 'Infamous', 'Crownmarked'];
-const TIER_COLORS = ['#b9ad98', '#c9c29b', '#e0b95e', '#e8985a', '#f05a4d', '#ff3333'];
+export const TIER_NAMES = ['Nobody', 'Known', 'Wanted', 'Hunted', 'Infamous', 'Crownmarked'];
+export const TIER_COLORS = ['#b9ad98', '#c9c29b', '#e0b95e', '#e8985a', '#f05a4d', '#ff3333'];
 const SQUAD_CSS = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
 
 function el(id: string): HTMLElement {

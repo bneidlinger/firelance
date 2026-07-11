@@ -14,6 +14,7 @@ import { stepBanking } from './systems/banking';
 import { stepClaims } from './systems/claims';
 import { stepLifecycle } from './systems/lifecycle';
 import { stepPhase } from './systems/phase';
+import { stepRumors } from './systems/rumors';
 import { buildOccupancy, moveOccupancyFor, stepStructures } from './systems/structures';
 
 /**
@@ -91,6 +92,8 @@ export function stepWorld(
     stepBanking(world, cfg, map, events);
     stepStructures(world, cfg, map, occ, events);
     stepLifecycle(world, cfg, events);
+    // After lifecycle: the freshly dead never ping (rumors name the living).
+    stepRumors(world, cfg, map, events);
   }
 
   stepPhase(world, cfg, map, events);

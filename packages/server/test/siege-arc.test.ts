@@ -12,11 +12,13 @@ import { runInProcessMatch } from '../src/harness';
 // the rebuild beat stays ~30% seed-luck — 16/17/19/20/21/25/26/28/29 all
 // pass, 20 has a rich arc). Expect to re-pin on any bot-behavior change.
 //
-// Variation is forced OFF: this pins a bot-behavior ARC on the authored
-// layout. M5's per-match map draw gets its own tests (variation.test.ts).
+// Variation and rumors forced OFF: this pins a bot-behavior ARC on the
+// authored layout with no gossip steering anyone. M5's map draw and rumor
+// systems get their own tests (variation.test.ts, rumors.test.ts).
 const cfg: GameConfig = {
   ...getConfigPreset('prototype'),
   variation: { ...getConfigPreset('prototype').variation, enabled: false },
+  rumors: { ...getConfigPreset('prototype').rumors, enabled: false },
 };
 
 describe('full siege arc (prototype config, pinned seed)', () => {

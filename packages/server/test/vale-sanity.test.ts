@@ -8,11 +8,12 @@ import { runInProcessMatch } from '../src/harness';
 // (Pinned seed: same policy as siege-arc; expect to re-pin on bot changes.
 // Seed 24 at 300 sim-seconds: structs [24,4,4,17], 4 claims, 5 trap bites.)
 //
-// Variation forced OFF — this pins the authored vale layout; the per-match
-// draw is covered by variation.test.ts.
+// Variation and rumors forced OFF — this pins the authored vale layout with
+// no gossip steering; the M5 systems are covered by their own tests.
 const cfg: GameConfig = {
   ...getConfigPreset('prototype'),
   variation: { ...getConfigPreset('prototype').variation, enabled: false },
+  rumors: { ...getConfigPreset('prototype').rumors, enabled: false },
 };
 
 describe('vale_full 12-bot ecology (pinned seed)', () => {

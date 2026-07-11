@@ -78,6 +78,8 @@ export interface BotSkill {
   bankDetourRange: number;
   /** Chase visible ground sacks within this range. */
   lootRange: number;
+  /** Walk toward a warm rumor ping within this range (M5 — gossip hunts). */
+  rumorChaseRange: number;
 }
 
 export const DEFAULT_SKILL: BotSkill = {
@@ -93,10 +95,21 @@ export const DEFAULT_SKILL: BotSkill = {
   carryTarget: 450,
   bankDetourRange: 12,
   lootRange: 18,
+  rumorChaseRange: 55,
 };
 
 type FsmState =
-  'ROAM' | 'SEEK' | 'ATTACK' | 'FLEE' | 'LOOT' | 'BANK' | 'DEFEND' | 'SIEGE' | 'REBUILD' | 'BUILD';
+  | 'ROAM'
+  | 'SEEK'
+  | 'ATTACK'
+  | 'FLEE'
+  | 'LOOT'
+  | 'BANK'
+  | 'DEFEND'
+  | 'SIEGE'
+  | 'REBUILD'
+  | 'BUILD'
+  | 'HUNT';
 
 /** One slot in the engineer's fort plan (or a repair errand). */
 interface BuildJob {
@@ -212,6 +225,10 @@ export class BotBrain {
   /** Last tick a build button was pressed (clean edges + cooldown respect). */
   private lastBuildPressTick = -1_000_000;
 
+  // ---- rumors (M5)
+  /** Latest enemy rumor heard (newest wins; staleness expires it in think). */
+  private rumor: { x: number; y: number; tk: number } | null = null;
+
   // ---- structures & nav memory (M4 s5)
   /** Visible structures, replaced wholesale each snapshot (fog = no memory). */
   private structures: StructSnap[] = [];
@@ -323,6 +340,7 @@ export class BotBrain {
         this.buildPlanKeep = null;
         this.currentBuildJob = null;
         this.lastBuildPressTick = -1_000_000;
+        this.rumor = null;
         break;
       case 'snap':
         this.you = msg.you;
@@ -380,6 +398,10 @@ export class BotBrain {
           } else if (ev.k === 'phase') {
             this.phase = ev.phase;
             this.phaseEndsTick = ev.endsTick;
+          } else if (ev.k === 'rumor') {
+            // Gossip about the ENEMY is a lead; gossip about us is just noise
+            // (we know where we are). Newest wins — staleness is the design.
+            if (ev.squad !== this.mySquad) this.rumor = { x: ev.x, y: ev.y, tk: ev.tk };
           }
         }
         break;
@@ -617,6 +639,10 @@ export class BotBrain {
         this.state = 'SIEGE';
       } else if (target && !carrying) {
         this.state = 'SEEK';
+      } else if (this.huntableRumor(tick)) {
+        // Nothing better to do and gossip is warm: go LOOK. This is the M5
+        // gate made mechanical — rumors must turn idle roamers into hunters.
+        this.state = 'HUNT';
       } else {
         this.state = 'ROAM';
       }
@@ -641,9 +667,32 @@ export class BotBrain {
         return this.doRebuild(tick);
       case 'BUILD':
         return this.doBuild(tick);
+      case 'HUNT':
+        return this.doHunt(tick);
       default:
         return this.doRoam(tick);
     }
+  }
+
+  /** A rumor worth walking to: warm (within 1.5× its fade horizon — the ring
+   *  the humans see), within chase range, and not already underfoot. Expired
+   *  or arrived-at rumors clear here so the FSM falls back to ROAM cleanly. */
+  private huntableRumor(tick: number): boolean {
+    const r = this.rumor;
+    if (!r || !this.you) return false;
+    const fadeSec = this.cfg?.rumors.fadeSec ?? 12;
+    if (tick - r.tk > fadeSec * 1.5 * this.tickRate) {
+      this.rumor = null;
+      return false;
+    }
+    const d = Math.hypot(r.x - this.you.x, r.y - this.you.y);
+    if (d < 5) {
+      // We're standing in the gossip circle. Either target acquisition has
+      // someone by now, or the trail is cold — stop circling the ping.
+      this.rumor = null;
+      return false;
+    }
+    return d <= this.skill.rumorChaseRange;
   }
 
   /** Lowest-id squad bot = banker (bank runs, rebuilds). */
@@ -856,6 +905,33 @@ export class BotBrain {
           this.navBlock,
         );
         if (t) this.setPath(tick, t);
+      }
+    }
+    const move = this.followPath(tick);
+    return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+  }
+
+  /** Walk to the rumor ping (doSeek's pathing against a fixed point). Vision
+   *  takes over on approach — a visible enemy flips the FSM to ATTACK/SEEK. */
+  private doHunt(tick: number): InputMsg {
+    const r = this.rumor!;
+    if (tick - this.lastPathThinkTick >= THINK_PATH_EVERY_TICKS) {
+      this.lastPathThinkTick = tick;
+      if (!this.pathGoal || Math.hypot(r.x - this.pathGoal.x, r.y - this.pathGoal.y) > 2) {
+        this.setPath(tick, { x: r.x, y: r.y });
+        if (!this.path) {
+          // The fuzz put the ping in water/rock — search from solid ground
+          // beside it instead of standing statue-still until it fades.
+          const t = randomWalkableTile(this.map!, this.rng, r.x, r.y, 4, this.navBlock);
+          if (t) {
+            this.setPath(tick, t);
+            // Anchor the goal on the rumor itself so the fallback tile isn't
+            // re-rolled every path think (the >2 check above stays quiet).
+            this.pathGoal = { x: r.x, y: r.y };
+          } else {
+            this.rumor = null; // hopeless gossip; ROAM next think
+          }
+        }
       }
     }
     const move = this.followPath(tick);

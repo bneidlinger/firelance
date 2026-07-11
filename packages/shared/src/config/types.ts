@@ -240,6 +240,34 @@ export interface GameConfig {
 
   build: BuildConfig;
 
+  /** Bounty rumors (M5, doc §7.2/§12/§18.1): high-tier players, heavy
+   *  carriers, and rich keeps leak PERIODIC, FUZZED location pings to the
+   *  whole map. Information pressure, never combat power — and always
+   *  approximate (the fuzz radius IS the design). */
+  rumors: {
+    /** Master switch (pinned bot-arc tests turn it off). */
+    enabled: boolean;
+    /** Seconds between pings per subject (staggered by subject id so the
+     *  town crier doesn't announce everyone on the same tick). */
+    intervalSec: number;
+    /** Bounty tier (0–5) at which a player starts leaking rumors (doc: 3 Hunted). */
+    bountyTier: number;
+    /** Rumor position error at bountyTier: per-axis σ in units (hard-capped
+     *  at 3σ by the sum-of-uniforms draw — no trig in the sim). */
+    fuzzRadius: number;
+    /** Fuzz multiplier per tier ABOVE bountyTier (<1: higher tiers leak
+     *  sharper positions — doc: "stronger regional hints"). */
+    fuzzTierFactor: number;
+    /** Carrier alert (doc tier-4 "banking alerts"): tier ≥ this AND
+     *  carrying ≥ carrierGold pings as a hauling rumor. */
+    carrierTier: number;
+    carrierGold: number;
+    /** A LIVING keep with vault ≥ this leaks a fuzzed ping (§18.1 anti-turtle). */
+    richKeepGold: number;
+    /** How long a rumor stays warm: client ring fade AND bot chase horizon. */
+    fadeSec: number;
+  };
+
   /** Per-match map variation (M5) — see map/variant.ts for the draw rules. */
   variation: {
     /** Master switch. Off reproduces the authored map exactly (M0–M4). */

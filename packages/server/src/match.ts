@@ -506,6 +506,7 @@ export class Match {
         case 'keepRebuilt':
         case 'keepClaimed': // placement news — same posture as keepRebuilt
         case 'eliminated':
+        case 'rumor': // gossip is global BY DESIGN — the position is pre-fuzzed
           out.push(ev);
           break;
         case 'sackTaken':

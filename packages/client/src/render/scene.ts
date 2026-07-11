@@ -31,11 +31,15 @@ export class Scene {
   readonly bombLayer = new Container();
   readonly fxLayer = new Container();
   readonly fogLayer = new Container();
+  /** ABOVE fog: rumor pings are gossip, not sight — they mark places nobody
+   *  can see. Anything vision-gated stays below the fog. */
+  readonly pingLayer = new Container();
 
   private constructor(app: Application) {
     this.app = app;
     // Draw order: terrain, keep markers, WALLS (sit on the ground), ground loot,
-    // bodies, arrows over bodies, bombs arc over everything mortal, sparks, fog.
+    // bodies, arrows over bodies, bombs arc over everything mortal, sparks, fog,
+    // then rumor pings over the fog itself.
     this.world.addChild(this.mapLayer);
     this.world.addChild(this.keepLayer);
     this.world.addChild(this.structureLayer);
@@ -45,6 +49,7 @@ export class Scene {
     this.world.addChild(this.bombLayer);
     this.world.addChild(this.fxLayer);
     this.world.addChild(this.fogLayer);
+    this.world.addChild(this.pingLayer);
     app.stage.addChild(this.world);
   }
 

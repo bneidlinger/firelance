@@ -119,6 +119,8 @@ const SERVER_SAMPLES: ServerMsg[] = [
       { k: 'keepDestroyed', tk: 500, squad: 2, x: 79.5, y: 36.5, spilled: 730 },
       { k: 'keepRebuilt', tk: 900, squad: 2, x: 16.5, y: 60.5, by: 7 },
       { k: 'eliminated', tk: 1200, squad: 3 },
+      { k: 'rumor', tk: 1250, kind: 'bounty', id: 7, squad: 2, x: 61.2, y: 40.9, tier: 3 },
+      { k: 'rumor', tk: 1260, kind: 'richKeep', id: -1, squad: 1, x: 20.1, y: 88.4, tier: 0 },
       { k: 'trapTriggered', tk: 1300, id: 32, squad: 2, victim: 4, x: 44.5, y: 60.5 },
       {
         k: 'hit',

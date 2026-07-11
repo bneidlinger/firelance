@@ -101,7 +101,8 @@ export type SfxName =
   | 'live'
   | 'matchEnd'
   | 'ownDeath'
-  | 'trapSnap';
+  | 'trapSnap'
+  | 'rumor';
 
 const SOUNDS: Record<SfxName, Note[]> = {
   shoot: [
@@ -184,6 +185,12 @@ const SOUNDS: Record<SfxName, Note[]> = {
   respawn: [
     { wave: 'triangle', f0: 330, f1: 660, d: 0.18, g: 0.35 },
     { wave: 'triangle', f0: 495, f1: 990, d: 0.2, g: 0.25, at: 0.06 },
+  ],
+  // Gossip on the wind: two soft falling notes, quiet by design — a rumor
+  // whispers, the alarm shouts.
+  rumor: [
+    { wave: 'sine', f0: 620, f1: 470, d: 0.12, g: 0.18 },
+    { wave: 'sine', f0: 470, f1: 380, d: 0.16, g: 0.14, at: 0.12 },
   ],
   dash: [{ wave: 'noise', f0: 0, d: 0.1, g: 0.3, lp: 3400 }],
   countdown: [{ wave: 'square', f0: 660, d: 0.09, g: 0.3 }],

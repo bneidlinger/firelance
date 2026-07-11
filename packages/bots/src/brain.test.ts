@@ -401,3 +401,80 @@ describe('bump-repath around invisible walls (M4 s5)', () => {
     expect(Math.max(...late)).toBeGreaterThan(0.35);
   });
 });
+
+describe('rumor hunts (M5)', () => {
+  /** keeps[0] plus its nearest fellow site ≥ 12u away — both walkable POIs. */
+  function huntLeg(): { start: { x: number; y: number }; goal: { x: number; y: number } } {
+    const start = scrim.keeps[0]!;
+    let goal = scrim.keeps[1]!;
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < scrim.keeps.length; i++) {
+      const k = scrim.keeps[i]!;
+      const d = Math.hypot(k.x - start.x, k.y - start.y);
+      if (d >= 12 && d < best) {
+        best = d;
+        goal = k;
+      }
+    }
+    return { start, goal };
+  }
+
+  it('a warm enemy rumor turns an idle roamer into a hunter that closes distance', () => {
+    const { start, goal } = huntLeg();
+    const brain = new BotBrain(11);
+    welcome(brain);
+    brain.handleServer({
+      t: 'ev',
+      tick: 100,
+      events: [{ k: 'rumor', tk: 100, kind: 'bounty', id: 99, squad: 1, x: goal.x, y: goal.y, tier: 3 }],
+    });
+    let x = start.x;
+    let y = start.y;
+    const speed = getKit(cfg, 'fighter').moveSpeed;
+    let sawHunt = false;
+    for (let tick = 100; tick < 400; tick += 2) {
+      snap(brain, tick, { you: { x, y } });
+      const input = brain.think(tick);
+      if (brain.fsmState === 'HUNT') sawHunt = true;
+      if (!input) continue;
+      const l = Math.hypot(input.mx, input.my);
+      if (l > 0.01) {
+        x += (input.mx / Math.max(1, l)) * speed * (2 / HZ);
+        y += (input.my / Math.max(1, l)) * speed * (2 / HZ);
+      }
+    }
+    expect(sawHunt).toBe(true);
+    const before = Math.hypot(goal.x - start.x, goal.y - start.y);
+    const after = Math.hypot(goal.x - x, goal.y - y);
+    expect(after).toBeLessThan(before - 6); // the gossip moved somebody
+  });
+
+  it('gossip about our own squad is ignored', () => {
+    const { start, goal } = huntLeg();
+    const brain = new BotBrain(12);
+    welcome(brain);
+    brain.handleServer({
+      t: 'ev',
+      tick: 100,
+      events: [{ k: 'rumor', tk: 100, kind: 'bounty', id: 1, squad: 0, x: goal.x, y: goal.y, tier: 3 }],
+    });
+    snap(brain, 102, { you: { x: start.x, y: start.y } });
+    brain.think(102);
+    expect(brain.fsmState).toBe('ROAM');
+  });
+
+  it('stale rumors expire instead of dragging bots across the map forever', () => {
+    const { start, goal } = huntLeg();
+    const brain = new BotBrain(13);
+    welcome(brain);
+    brain.handleServer({
+      t: 'ev',
+      tick: 100,
+      events: [{ k: 'rumor', tk: 100, kind: 'bounty', id: 99, squad: 1, x: goal.x, y: goal.y, tier: 3 }],
+    });
+    // fadeSec 12 × 1.5 horizon = 540 ticks at 30Hz — think well past it.
+    snap(brain, 700, { you: { x: start.x, y: start.y } });
+    brain.think(700);
+    expect(brain.fsmState).toBe('ROAM');
+  });
+});

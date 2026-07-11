@@ -51,6 +51,17 @@ export class FxLayer {
     this.add(g, x, y, 450, 2.4);
   }
 
+  /** A rumor ping (M5): concentric rings the size of the FUZZ — the circle
+   *  IS the uncertainty. Long life; the slow fade is the staleness readout. */
+  rumorPing(x: number, y: number, radiusUnits: number, color: number, lifeMs: number): void {
+    const g = new Graphics();
+    const r = Math.max(2, radiusUnits) * TILE;
+    g.circle(0, 0, r).stroke({ width: 2, color, alpha: 0.45 });
+    g.circle(0, 0, r * 0.55).stroke({ width: 1.5, color, alpha: 0.3 });
+    g.circle(0, 0, 3.5).fill({ color, alpha: 0.85 });
+    this.add(g, x, y, lifeMs, 1.12);
+  }
+
   /** Firebomb blast: flash disc + flying embers. `big` for keep-fall drama. */
   explosion(x: number, y: number, big = false): void {
     const s = big ? 2.2 : 1;

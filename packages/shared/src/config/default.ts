@@ -146,6 +146,21 @@ export const defaultConfig: GameConfig = {
     // specialist keeps a fort standing on half the supply bill.
     repair: { hpPerHit: 25, cost: 4, engineerFactor: 2 },
   },
+  // Gossip cadence (M5): a Hunted player pings every ~20s with ±12u of slop
+  // (tier 4 ≈ ±7u, Crownmarked ≈ ±4u — the noose tightens as the purse
+  // grows). Rich keeps at 500g+ vault leak the same way — turtling on a fat
+  // vault buys attention instead of safety.
+  rumors: {
+    enabled: true,
+    intervalSec: 20,
+    bountyTier: 3,
+    fuzzRadius: 12,
+    fuzzTierFactor: 0.6,
+    carrierTier: 4,
+    carrierGold: 200,
+    richKeepGold: 500,
+    fadeSec: 12,
+  },
   // Per-match map draw (M5, doc §13.2): on vale_full this is 4 anchors +
   // 3 of 6 contested sites, 2 of 3 towns open, shuffled muster corners —
   // consecutive matches on one server stop sharing an opening. Pinned-seed

@@ -7,7 +7,7 @@ import type { ClassId } from '../config';
 import type { MapVariant } from '../map/variant';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 // ---------------------------------------------------------------- client → server
 

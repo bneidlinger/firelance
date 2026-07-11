@@ -56,6 +56,8 @@ export const smokeConfig: GameConfig = defineConfig({
   // Fast respawns keep combat flowing in compressed matches.
   player: { respawnSec: 4 },
   variation: { enabled: false },
+  // Smoke is the pure combat-sanity arena — no gossip steering the bots.
+  rumors: { enabled: false },
 });
 
 /** Browser-verification preset: placement long enough for a scripted claim
@@ -69,10 +71,13 @@ export const verifyConfig: GameConfig = defineConfig({
 
 /** M5 browser-verification preset: variation ON with a full match cycle
  *  (placement → live → restart) inside ~2 wall-minutes, so an automation
- *  session can watch CONSECUTIVE matches draw different boards. */
+ *  session can watch CONSECUTIVE matches draw different boards. Rumors are
+ *  spiced hot (fast cadence, low thresholds) so pings appear within the
+ *  first minute — numbers are for VERIFICATION, tuning lives in default. */
 export const verify5Config: GameConfig = defineConfig({
   name: 'verify5',
   match: { durationSec: 90, placementSec: 15, countdownSec: 3, restartSec: 8 },
+  rumors: { intervalSec: 8, richKeepGold: 200, carrierGold: 100 },
 });
 
 const presets: Record<string, GameConfig> = {

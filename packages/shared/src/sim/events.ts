@@ -120,6 +120,23 @@ export type SimEvent =
       droppedGold: number;
       assists: number[];
     }
+  // -- rumors (M5), GLOBAL — gossip is the whole map hearing it at once.
+  /** A fuzzed location leak: a high-bounty player (`bounty`), a heavy carrier
+   *  (`carrier`, doc's tier-4 banking alert), or a fat vault (`richKeep`).
+   *  (x,y) is NEVER the true position — it's drawn within ±3×fuzz of it.
+   *  `id` is the subject player (-1 for richKeep); `tier` their bounty tier
+   *  at emit (0 for richKeep). The subject's own squad hears it too — feeling
+   *  hunted is the design. */
+  | {
+      k: 'rumor';
+      tk: number;
+      kind: 'bounty' | 'carrier' | 'richKeep';
+      id: number;
+      squad: number;
+      x: number;
+      y: number;
+      tier: number;
+    }
   // -- banking
   /** A deposit channel completed — global; the scoreboard moved. */
   | { k: 'banked'; tk: number; squad: number; by: number; amount: number; x: number; y: number }

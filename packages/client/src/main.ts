@@ -33,7 +33,7 @@ import { BombLayer } from './render/bombs';
 import { EntityLayer, type OwnVisual } from './render/entities';
 import { FogLayer } from './render/fog';
 import { FxLayer } from './render/fx';
-import { Hud } from './render/hud';
+import { Hud, TIER_COLORS, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
@@ -78,6 +78,9 @@ interface GameState {
   bombs: BombLayer;
   keeps: KeepLayer;
   fx: FxLayer;
+  /** Rumor pings — a second fx pool on the ABOVE-FOG layer (gossip marks
+   *  places nobody can see; the fog must not swallow it). */
+  pings: FxLayer;
   fog: FogLayer;
   hud: Hud;
   /** FULL structure occupancy from the newest snapshot — the fog mask's
@@ -109,6 +112,26 @@ let disconnected = false;
 
 const SQUAD_CSS = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
 const SQUAD_CSS_SAFE = (squad: number): string => SQUAD_CSS[squad] ?? '#ffffff';
+
+/** " — close by, to the north-west" style bearing for rumor news lines (no
+ *  minimap: words are the wayfinding). World y grows southward. */
+function bearingPhrase(dx: number, dy: number): string {
+  const d = Math.hypot(dx, dy);
+  if (d < 8) return ' — right where you stand';
+  const dirs = [
+    'east',
+    'south-east',
+    'south',
+    'south-west',
+    'west',
+    'north-west',
+    'north',
+    'north-east',
+  ];
+  const idx = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
+  const range = d < 22 ? 'close by, to the' : d > 55 ? 'far to the' : 'to the';
+  return ` — ${range} ${dirs[idx]}`;
+}
 
 /** Keep the persistent exile/eliminated strip in sync with squad state. */
 function updateExileStrip(): void {
@@ -349,6 +372,42 @@ function handleEvent(ev: NetEvent): void {
       }
       break;
     }
+    case 'rumor': {
+      // Gossip: a fuzzed ring on the map (ABOVE fog — nobody "sees" this) +
+      // a news line with a compass bearing, since there's no minimap to read.
+      const r = game.cfg.rumors;
+      const fuzz =
+        ev.kind === 'richKeep'
+          ? r.fuzzRadius
+          : r.fuzzRadius * Math.pow(r.fuzzTierFactor, Math.max(0, ev.tier - r.bountyTier));
+      game.pings.rumorPing(ev.x, ev.y, fuzz, SQUAD_COLORS[ev.squad] ?? 0xffffff, r.fadeSec * 1000);
+      const names = ['Red', 'Blue', 'Green', 'Gold'];
+      const dir = listener ? bearingPhrase(ev.x - listener.x, ev.y - listener.y) : '';
+      const who = ev.id >= 0 ? (roster.get(ev.id)?.name ?? `#${ev.id}`) : '';
+      const squadSpan = `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">`;
+      if (ev.kind === 'richKeep') {
+        game.hud.news(`🗣 ${squadSpan}${names[ev.squad]} keep</span>'s vault grows fat${dir}`);
+        if (ev.squad === game.ownSquad) {
+          game.hud.toast(`your vault's wealth is the talk of the land — bank it or defend it`);
+        }
+      } else {
+        const tierSpan = `<span style="color:${TIER_COLORS[ev.tier] ?? '#fff'}">`;
+        const what =
+          ev.kind === 'carrier'
+            ? `hauls a heavy purse`
+            : `(${tierSpan}${TIER_NAMES[ev.tier] ?? '?'}</span>) sighted`;
+        game.hud.news(`🗣 ${squadSpan}${who}</span> ${what}${dir}`);
+        if (ev.id === game.ownId) {
+          game.hud.toast(
+            ev.kind === 'carrier'
+              ? `your heavy purse draws eyes — hunters may follow`
+              : `word of your deeds spreads — hunters may follow`,
+          );
+        }
+      }
+      if (ev.squad !== game.ownSquad) sfx('rumor');
+      break;
+    }
     case 'bombSpawn':
       game.bombs.onSpawn(ev);
       sfx('bombThrow', { x: ev.x, y: ev.y }, listener);
@@ -527,6 +586,7 @@ async function setupScene(
 
   game?.bombs.clear();
   game?.keeps.clear();
+  game?.pings.clear();
 
   game = {
     cfg,
@@ -544,6 +604,7 @@ async function setupScene(
     bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     fx: new FxLayer(scene.fxLayer),
+    pings: new FxLayer(scene.pingLayer),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
     structOcc: null,
@@ -668,6 +729,7 @@ function frame(now: number): void {
   game.bombs.frame(renderTick, now);
   game.keeps.frame(now);
   game.fx.frame(now);
+  game.pings.frame(now);
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
 
