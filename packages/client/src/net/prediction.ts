@@ -35,6 +35,13 @@ export interface PredictionStats {
   /** Hard position snaps (respawns excepted — those are intentional). */
   snapCorrections: number;
   pendingInputs: number;
+  /** Last snapshot ack + the seq window still buffered. Healthy: ackSeq rides
+   *  just under pendingSeqHi and the window stays ~RTT-sized. A gap that never
+   *  closes (ackSeq pinned below pendingSeqLo) is a stale input epoch — the
+   *  restart-contract failure this pair exists to expose. */
+  ackSeq: number;
+  pendingSeqLo: number;
+  pendingSeqHi: number;
 }
 
 const HARD_SNAP_DIST = 2.0; // beyond this, don't smooth — teleport (respawn etc.)
@@ -61,6 +68,9 @@ export class Prediction {
     maxError: 0,
     snapCorrections: 0,
     pendingInputs: 0,
+    ackSeq: 0,
+    pendingSeqLo: 0,
+    pendingSeqHi: 0,
   };
 
   constructor(
@@ -92,11 +102,19 @@ export class Prediction {
     stepMovement(this.state, cmd, this.params, this.map, 1 / this.cfg.tick.simHz, factor, this.occ);
     this.pending.push({ seq, cmd });
     if (this.pending.length > 120) this.pending.shift(); // safety bound (4s)
+    this.syncPendingStats();
+  }
+
+  /** pending is seq-ordered (push-only), so the window is just the ends. */
+  private syncPendingStats(): void {
     this.stats.pendingInputs = this.pending.length;
+    this.stats.pendingSeqLo = this.pending[0]?.seq ?? 0;
+    this.stats.pendingSeqHi = this.pending[this.pending.length - 1]?.seq ?? 0;
   }
 
   /** Rebase to the authoritative state and replay unacked inputs. */
   onSnapshot(you: YouSnap, ackSeq: number): void {
+    this.stats.ackSeq = ackSeq;
     if (you.cls !== this.cls) {
       this.cls = you.cls;
       this.params = kitMoveParams(this.cfg, you.cls);
@@ -131,7 +149,7 @@ export class Prediction {
       this.aliveState = false;
       this.state = authoritative;
       this.pending = [];
-      this.stats.pendingInputs = 0;
+      this.syncPendingStats();
       this.smoothX = 0;
       this.smoothY = 0;
       return;
@@ -141,14 +159,14 @@ export class Prediction {
       this.aliveState = true;
       this.state = authoritative;
       this.pending = [];
-      this.stats.pendingInputs = 0;
+      this.syncPendingStats();
       this.smoothX = 0;
       this.smoothY = 0;
       return;
     }
 
     this.pending = this.pending.filter((p) => p.seq > ackSeq);
-    this.stats.pendingInputs = this.pending.length;
+    this.syncPendingStats();
 
     const replayed = authoritative;
     const preX = this.state.x;

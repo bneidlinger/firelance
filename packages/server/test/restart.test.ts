@@ -3,7 +3,7 @@ import { getConfigPreset } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import { decodeServerMsg, encodeMsg } from '@shared/net/codec';
 import { PROTOCOL_VERSION } from '@shared/net/messages';
-import type { ServerMsg, WelcomeMsg } from '@shared/net/messages';
+import type { ServerMsg, SnapMsg, WelcomeMsg } from '@shared/net/messages';
 import { PHASE_ENDED, PHASE_LIVE } from '@shared/sim/world';
 import { Match } from '../src/match';
 import { createLocalPair } from '../src/transport';
@@ -101,5 +101,12 @@ describe('match auto-restart', () => {
     }
     expect(match.world.phase).toBe(PHASE_LIVE);
     expect(p.x).toBeGreaterThan(x0 + 5); // moved: seat plumbing survived the restart
+
+    // The ack path must recover ABOVE the late fossil too: snapshots ack the
+    // continuation seqs, so the client's pending buffer (trimmed by
+    // seq > ackSeq) drains to its unacked tail instead of pinning at the
+    // 120 cap replaying a dead epoch.
+    const snaps = msgs.filter((m): m is SnapMsg => m.t === 'snap');
+    expect(snaps[snaps.length - 1]!.ackSeq).toBeGreaterThan(preRestartSeq);
   });
 });

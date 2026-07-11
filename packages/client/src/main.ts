@@ -703,7 +703,9 @@ function frame(now: number): void {
       reconciles: p.reconciles,
       err: `${p.lastError.toFixed(4)} max ${p.maxError.toFixed(3)}`,
       snapsHard: p.snapCorrections,
-      pending: p.pendingInputs,
+      // Count + buffered seq window + last ack: healthy is a tiny count with
+      // ack hugging the window; a full window ack can't reach is a dead epoch.
+      pending: `${p.pendingInputs} [${p.pendingSeqLo}..${p.pendingSeqHi}] ack ${p.ackSeq}`,
       net: `up ${upKBs.toFixed(1)} down ${downKBs.toFixed(1)} KB/s`,
       players: roster.size,
     });
