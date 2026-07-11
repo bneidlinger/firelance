@@ -267,6 +267,10 @@ function handleServer(msg: ServerMsg): void {
         game.hud.score(msg, roster);
       }
       break;
+    case 'summary':
+      // The match's gold story — the end screen draws the graph from this.
+      if (game) game.hud.summary(msg);
+      break;
     case 'error':
       showBanner(msg.reason);
       break;

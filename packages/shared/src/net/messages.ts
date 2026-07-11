@@ -7,7 +7,7 @@ import type { ClassId } from '../config';
 import type { MapVariant } from '../map/variant';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 // ---------------------------------------------------------------- client → server
 
@@ -249,6 +249,26 @@ export interface ScoreMsg {
   }>;
 }
 
+/**
+ * The match's story in numbers (M5): per-squad banked-gold time series plus
+ * the big beats, broadcast once when the match ends — the end screen draws
+ * the gold-flow graph from exactly this. The ledger had the data all along;
+ * this just ships it. Banked only: it IS the score, and it's public. Vault
+ * internals stay private even in death.
+ */
+export interface SummaryMsg {
+  t: 'summary';
+  tick: number;
+  /** Tick of banked[*][0] (the goLive moment). */
+  startTick: number;
+  /** Sim ticks between samples (1s worth). */
+  everyTicks: number;
+  /** banked[squad][sample] — non-decreasing by construction. */
+  banked: number[][];
+  /** Graph annotations: keep falls, comebacks, eliminations. */
+  marks: Array<{ tk: number; k: 'keepDestroyed' | 'keepRebuilt' | 'eliminated'; squad: number }>;
+}
+
 export interface PongMsg {
   t: 'pong';
   ct: number;
@@ -260,4 +280,11 @@ export interface ErrorMsg {
   reason: string;
 }
 
-export type ServerMsg = WelcomeMsg | SnapMsg | EvMsg | ScoreMsg | PongMsg | ErrorMsg;
+export type ServerMsg =
+  | WelcomeMsg
+  | SnapMsg
+  | EvMsg
+  | ScoreMsg
+  | SummaryMsg
+  | PongMsg
+  | ErrorMsg;

@@ -415,6 +415,7 @@ export class BotBrain {
           }
         }
         break;
+      case 'summary': // end-screen garnish; bots don't read their own obituary
       case 'pong':
       case 'error':
         break;

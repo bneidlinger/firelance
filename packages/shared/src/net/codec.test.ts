@@ -147,6 +147,20 @@ const SERVER_SAMPLES: ServerMsg[] = [
       { id: 1, bk: 400, kh: 0, el: true },
     ],
   },
+  {
+    t: 'summary',
+    tick: 14400,
+    startTick: 690,
+    everyTicks: 30,
+    banked: [
+      [0, 0, 200, 200],
+      [0, 100, 100, 700],
+    ],
+    marks: [
+      { tk: 9000, k: 'keepDestroyed', squad: 0 },
+      { tk: 12000, k: 'eliminated', squad: 0 },
+    ],
+  },
   { t: 'pong', ct: 123, tick: 101 },
   { t: 'error', reason: 'room full' },
 ];

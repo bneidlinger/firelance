@@ -10,6 +10,7 @@ import type {
   NetEvent,
   RosterEntry,
   ServerMsg,
+  SummaryMsg,
   WelcomeMsg,
 } from '@shared/net/messages';
 import { PROTOCOL_VERSION } from '@shared/net/messages';
@@ -21,6 +22,7 @@ import {
   createWorld,
   IDLE_INPUT,
   PHASE_ENDED,
+  PHASE_LIVE,
   PHASE_PLACEMENT,
   SPAWN_OFFSETS,
   spawnPlayer,
@@ -82,6 +84,12 @@ export class Match {
   private readonly pendingIdleInputs = new Map<PlayerId, InputCmd>();
   private stats = { snapshotsSent: 0, inputsAccepted: 0, bytesSent: 0 };
   private pendingEvents: SimEvent[] = [];
+  // Match-summary accumulation (M5): 1Hz banked-gold samples + big beats,
+  // reset by each goLive, broadcast once at matchEnd. Presentation data —
+  // deliberately OUTSIDE the world (never serialized, never hashed).
+  private summaryBanked: number[][] = [];
+  private summaryMarks: SummaryMsg['marks'] = [];
+  private summaryStart = 0;
   private currentSeed: number;
   private worldState: World;
   private recorderState: ReplayRecorder | null;
@@ -424,6 +432,7 @@ export class Match {
       this.opts.onSimEvents?.(this.worldState.tick, events);
       this.pendingEvents.push(...events);
     }
+    this.sampleSummary(events);
 
     // Expire limbo seats whose grace window lapsed (checked ~1Hz).
     if (this.limbo.size > 0 && this.worldState.tick % this.cfg.tick.simHz === 0) {
@@ -450,6 +459,51 @@ export class Match {
     ) {
       this.restart();
     }
+  }
+
+  /** Accumulate the gold-flow story; ship it the moment the match ends.
+   *  Ordering note: the summary may reach a client BEFORE the matchEnd event
+   *  (events flush on snapshot ticks) — the HUD latches on whichever lands
+   *  second, so both orders draw the graph. */
+  private sampleSummary(events: SimEvent[]): void {
+    const w = this.worldState;
+    for (const ev of events) {
+      if (ev.k === 'phase' && ev.phase === PHASE_LIVE) {
+        // goLive zeroed the economy: a fresh story starts here.
+        this.summaryBanked = w.squads.map(() => []);
+        this.summaryMarks = [];
+        this.summaryStart = w.tick;
+        this.pushSummarySample();
+      } else if (
+        (ev.k === 'keepDestroyed' || ev.k === 'keepRebuilt' || ev.k === 'eliminated') &&
+        this.summaryMarks.length < 64
+      ) {
+        this.summaryMarks.push({ tk: ev.tk, k: ev.k, squad: ev.squad });
+      } else if (ev.k === 'matchEnd' && this.summaryBanked.length > 0) {
+        this.pushSummarySample(); // the final word, whatever the clock says
+        const msg: ServerMsg = {
+          t: 'summary',
+          tick: w.tick,
+          startTick: this.summaryStart,
+          everyTicks: this.cfg.tick.simHz,
+          banked: this.summaryBanked,
+          marks: this.summaryMarks,
+        };
+        for (const seat of this.seats.values()) this.send(seat, msg);
+      }
+    }
+    if (
+      w.phase === PHASE_LIVE &&
+      this.summaryBanked.length > 0 &&
+      w.tick > this.summaryStart &&
+      (w.tick - this.summaryStart) % this.cfg.tick.simHz === 0
+    ) {
+      this.pushSummarySample();
+    }
+  }
+
+  private pushSummarySample(): void {
+    this.worldState.squads.forEach((s, i) => this.summaryBanked[i]?.push(s.bankedGold));
   }
 
   private sendSnapshots(): void {
@@ -648,6 +702,8 @@ export class Match {
     this.mapState = applyVariant(this.baseMap, this.variantState);
     this.worldState = createWorld(this.currentSeed, this.cfg, this.mapState);
     this.pendingEvents = [];
+    this.summaryBanked = [];
+    this.summaryMarks = [];
     // Limbo seats belong to the old world; a returner just joins fresh.
     this.limbo.clear();
     this.pendingIdleInputs.clear();

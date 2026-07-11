@@ -11,7 +11,7 @@ export function encodeMsg(msg: ClientMsg | ServerMsg): string {
 }
 
 const CLIENT_KINDS = new Set(['hello', 'input', 'class', 'ping']);
-const SERVER_KINDS = new Set(['welcome', 'snap', 'ev', 'score', 'pong', 'error']);
+const SERVER_KINDS = new Set(['welcome', 'snap', 'ev', 'score', 'summary', 'pong', 'error']);
 const CLASS_IDS = new Set(['fighter', 'ranger', 'engineer']);
 
 function parse(data: unknown): DecodeResult<Record<string, unknown>> {
@@ -115,6 +115,17 @@ export function decodeServerMsg(data: unknown): DecodeResult<ServerMsg> {
     case 'score':
       if (!isFiniteNumber(m.tick) || !Array.isArray(m.players) || !Array.isArray(m.squads)) {
         return { ok: false, error: 'score: bad shape' };
+      }
+      break;
+    case 'summary':
+      if (
+        !isFiniteNumber(m.tick) ||
+        !isFiniteNumber(m.startTick) ||
+        !isFiniteNumber(m.everyTicks) ||
+        !Array.isArray(m.banked) ||
+        !Array.isArray(m.marks)
+      ) {
+        return { ok: false, error: 'summary: bad shape' };
       }
       break;
     case 'pong':
