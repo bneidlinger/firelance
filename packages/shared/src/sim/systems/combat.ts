@@ -33,8 +33,7 @@ export function applyDamage(
   // Shield: victim blocking and the attacker sits inside the frontal sector.
   // Bomb blasts are omnidirectional and traps bite from below — no sector to
   // hide behind for either.
-  const shield =
-    kind === 'bomb' || kind === 'trap' ? undefined : getKit(cfg, victim.cls).shield;
+  const shield = kind === 'bomb' || kind === 'trap' ? undefined : getKit(cfg, victim.cls).shield;
   let blocked = false;
   if (shield && attacker && isBlocking(victim.input.b, true, victim.dashTicks)) {
     const dx = attacker.x - victim.x;

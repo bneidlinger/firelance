@@ -3,13 +3,7 @@ import { getConfigPreset } from '@shared/config';
 import { getMap } from '@shared/map/maps';
 import { createRng, rngFloat, rngInt } from '@shared/math/rng';
 import { isVisibleToSquad } from '@shared/sim/vision';
-import {
-  createWorld,
-  spawnPlayer,
-  PHASE_LIVE,
-  STRUCT_TRAP,
-  STRUCT_WALL,
-} from '@shared/sim/world';
+import { createWorld, spawnPlayer, PHASE_LIVE, STRUCT_TRAP, STRUCT_WALL } from '@shared/sim/world';
 import { isWalkBlocked } from '@shared/map/types';
 import { buildOccupancy } from '@shared/sim/systems/structures';
 import { buildSquadEnts, buildSquadSacks, buildSquadStructures } from '../src/snapshot';

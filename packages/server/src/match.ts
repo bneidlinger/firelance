@@ -200,8 +200,13 @@ export class Match {
 
     const squad = this.pickSquad();
     const memberIdx = this.squadMembers(squad).length;
-    // Default composition when no class requested: 1 fighter + rangers.
-    const cls: ClassId = hello.cls ?? (memberIdx === 0 ? 'fighter' : 'ranger');
+    // Default composition when no class requested: fighter / engineer / ranger
+    // by seat order — but the engineer default is BOT-only (M4 s5: the middle
+    // bot builds). A human who never picked a class shouldn't wake up holding
+    // a hammer; they get the old fighter/ranger split.
+    const cls: ClassId =
+      hello.cls ??
+      (memberIdx === 0 ? 'fighter' : memberIdx === 1 && hello.bot === true ? 'engineer' : 'ranger');
     const name =
       hello.name.replace(/[^\w \-']/g, '').slice(0, 16) || `player${this.worldState.nextId}`;
 
@@ -490,7 +495,11 @@ export class Match {
           // A trap going up is squad-secret, full stop — even eyes on the tile
           // see a kneeling engineer, not what they buried. Everything else is
           // positional: own always; enemy (design §12.1 hidden) with eyes on.
-          if (ev.kind === STRUCT_TRAP ? ev.squad === squadId : ev.squad === squadId || visible(ev.x, ev.y)) {
+          if (
+            ev.kind === STRUCT_TRAP
+              ? ev.squad === squadId
+              : ev.squad === squadId || visible(ev.x, ev.y)
+          ) {
             out.push(ev);
           }
           break;

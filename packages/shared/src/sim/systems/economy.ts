@@ -196,10 +196,25 @@ export function mintKillGold(world: World, killer: Player, amount: number): void
   if (!squad) return;
   if (squad.keepHp > 0) {
     mintGoldToKeep(world, killer.squad, amount);
-  } else {
+  } else if (killer.alive) {
     world.goldMinted += amount;
     squad.lifetimeGold += amount;
     killer.carried += amount;
+  } else {
+    // Posthumous exile spoils — a trap biting after its builder fell, or an
+    // arrow outliving its archer. A corpse can't carry (its own death already
+    // spilled, so nothing would ever spill THIS) — the payout hits the ground
+    // where the body lies, free for whoever walks there first.
+    world.goldMinted += amount;
+    squad.lifetimeGold += amount;
+    const sack: LootSack = {
+      id: world.nextId++,
+      x: killer.x,
+      y: killer.y,
+      gold: amount,
+      bornTick: world.tick,
+    };
+    world.sacks.set(sack.id, sack);
   }
 }
 

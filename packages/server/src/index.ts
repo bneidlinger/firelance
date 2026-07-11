@@ -14,7 +14,7 @@ import { serveStatic } from './static';
 import { wrapWs } from './wsconn';
 
 // Firelance authoritative server.
-//   tsx packages/server/src/index.ts --port 8787 --config prototype --bots 11 --seed 1
+//   tsx packages/server/src/index.ts --port 8787 --config prototype --bots 11 --seed 1 --map vale_full
 // Serves the built client (packages/client/dist) on the same port when it
 // exists — one origin for page + websocket, which is exactly what a
 // `cloudflared tunnel --url http://localhost:8787` needs.
@@ -33,7 +33,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const staticDir = arg('static', join(here, '../../client/dist'));
 
 const cfg = getConfigPreset(cfgName);
-const map = getMap('scrim_small');
+// vale_full is the M4+ default; scrim_small stays the harness/CI arena.
+const map = getMap(arg('map', 'vale_full'));
 const match = new Match({
   cfg,
   map,

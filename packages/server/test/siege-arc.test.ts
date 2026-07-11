@@ -7,16 +7,17 @@ import { runInProcessMatch } from '../src/harness';
 // crack multiple keeps, complete an emergency rebuild, and eliminate squads
 // until the early last-squad-standing end. If a behavior change breaks any
 // beat of that arc, this test names it. (Turbo: ~8 sim-minutes in a few
-// wall-seconds.) Re-pinned seed 7 → 4 for M4 s2: the placement phase shifts
-// the pre-live timeline, and the rebuild beat is seed-luck (~30% of seeds —
-// 4/10/12/13 all pass; simSeconds covers placement + countdown + duration).
+// wall-seconds.) Re-pinned 7 → 4 for M4 s2 (placement shifts the timeline),
+// 4 → 20 for M4 s5 (claim/build/bump behaviors shift every bot's rng stream;
+// the rebuild beat stays ~30% seed-luck — 16/17/19/20/21/25/26/28/29 all
+// pass, 20 has a rich arc). Expect to re-pin on any bot-behavior change.
 
 describe('full siege arc (prototype config, pinned seed)', () => {
-  it('seed 4: keeps fall, a squad rebuilds, eliminations end the match early', async () => {
+  it('seed 20: keeps fall, a squad rebuilds, eliminations end the match early', async () => {
     const r = await runInProcessMatch({
       bots: 12,
       simSeconds: 505,
-      seed: 4,
+      seed: 20,
       cfg: getConfigPreset('prototype'),
     });
 

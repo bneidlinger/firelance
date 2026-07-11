@@ -94,7 +94,15 @@ export type SimEvent =
    *  wherever you are); everyone else positional. The paired `hit` event
    *  carries the damage; this one carries the snap for fx/audio/alarm.
    *  NOTE: structBuilt for kind trap is OWN-squad only — never positional. */
-  | { k: 'trapTriggered'; tk: number; id: number; squad: number; victim: number; x: number; y: number }
+  | {
+      k: 'trapTriggered';
+      tk: number;
+      id: number;
+      squad: number;
+      victim: number;
+      x: number;
+      y: number;
+    }
   // -- lifecycle
   | { k: 'respawn'; tk: number; id: number; squad: number; x: number; y: number }
   // -- economy, global (bounty is public info)

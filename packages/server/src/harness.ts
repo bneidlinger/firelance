@@ -24,6 +24,8 @@ export interface HarnessOpts {
   simSeconds: number;
   seed: number;
   cfg?: GameConfig;
+  /** Map id (default scrim_small — the pinned-seed CI arena). */
+  mapId?: string;
 }
 
 export interface CombatStats {
@@ -49,6 +51,13 @@ export interface CombatStats {
   keepsDestroyed: number;
   rebuilds: number;
   eliminations: number;
+  /** M4 s5 — structures raised, by kind index (wall/gate/tower/trap). */
+  structuresBuilt: number[];
+  /** Placement-phase claims completed by a PLAYER (deadline auto-assigns
+   *  arrive with by:null and don't count). */
+  claims: number;
+  /** Traps that bit someone. */
+  trapTriggers: number;
 }
 
 export interface HarnessResult {
@@ -77,7 +86,7 @@ export interface HarnessResult {
 
 export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResult> {
   const cfg = opts.cfg ?? getConfigPreset('smoke');
-  const map = getMap('scrim_small');
+  const map = getMap(opts.mapId ?? 'scrim_small');
   const violations: string[] = [];
   const combat: CombatStats = {
     shotsByPlayer: {},
@@ -94,6 +103,9 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
     keepsDestroyed: 0,
     rebuilds: 0,
     eliminations: 0,
+    structuresBuilt: [0, 0, 0, 0],
+    claims: 0,
+    trapTriggers: 0,
   };
   let restarts = 0;
 
@@ -150,6 +162,15 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
           break;
         case 'sackTaken':
           combat.sacksLooted++;
+          break;
+        case 'structBuilt':
+          combat.structuresBuilt[ev.kind] = (combat.structuresBuilt[ev.kind] ?? 0) + 1;
+          break;
+        case 'keepClaimed':
+          if (ev.by !== null) combat.claims++;
+          break;
+        case 'trapTriggered':
+          combat.trapTriggers++;
           break;
       }
     }

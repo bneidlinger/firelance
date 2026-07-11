@@ -4,13 +4,31 @@ import type { RngState } from '@shared/math/rng';
 import { rngInt } from '@shared/math/rng';
 
 // Grid A* over the shared map. 8-directional with corner-cut prevention.
-// 96×96 = 9216 nodes; a simple binary heap is more than enough.
+// 128×128 = 16384 nodes; a simple binary heap is more than enough.
+//
+// M4 s5: every helper takes an optional `blocked` tile-index set — the bot's
+// view of DYNAMIC blockers (structures from its fog-filtered snapshot, minus
+// its own gates, plus short-lived bump-memory tiles for walls it can't see
+// yet). Same threading pattern as the sim's occupancy param: terrain is the
+// map's truth, blocked is the caller's.
+
+/** Static terrain OR caller-known dynamic blocker. */
+function navBlocked(
+  map: MapData,
+  blocked: ReadonlySet<number> | null,
+  tx: number,
+  ty: number,
+): boolean {
+  if (isWalkBlocked(map, tx, ty)) return true;
+  return blocked !== null && blocked.has(ty * map.width + tx);
+}
 
 /**
  * True when no WALK-blocking tile lies between the two points (Amanatides–Woo,
  * same traversal as vision's tileRayClear but over the walk grid). The
  * distinction matters at rivers: water is see-through but not walkable —
- * direct-steering on a VISION ray marches bots into the bank forever.
+ * direct-steering on a VISION ray marches bots into the bank forever. Same
+ * story for structures: a wall you can see over is still a wall.
  */
 export function walkRayClear(
   map: MapData,
@@ -18,6 +36,7 @@ export function walkRayClear(
   y0: number,
   x1: number,
   y1: number,
+  blocked: ReadonlySet<number> | null = null,
 ): boolean {
   let tx = Math.floor(x0);
   let ty = Math.floor(y0);
@@ -42,7 +61,7 @@ export function walkRayClear(
       tMaxY += tDeltaY;
       ty += stepY;
     }
-    if (isWalkBlocked(map, tx, ty)) return false;
+    if (navBlocked(map, blocked, tx, ty)) return false;
     if (tx === txEnd && ty === tyEnd) return true;
   }
   return false;
@@ -103,10 +122,13 @@ export function findPath(
   sy: number,
   tx: number,
   ty: number,
+  blocked: ReadonlySet<number> | null = null,
 ): Waypoint[] | null {
   const w = map.width;
   const h = map.height;
-  if (isWalkBlocked(map, sx, sy) || isWalkBlocked(map, tx, ty)) return null;
+  // Start tile is exempt from the dynamic set (we may be STANDING on a tile
+  // we just bump-marked); a blocked goal is unreachable by definition.
+  if (isWalkBlocked(map, sx, sy) || navBlocked(map, blocked, tx, ty)) return null;
   const start = sy * w + sx;
   const goal = ty * w + tx;
   if (start === goal) return [];
@@ -137,10 +159,11 @@ export function findPath(
         if (dx === 0 && dy === 0) continue;
         const nx = cx + dx;
         const ny = cy + dy;
-        if (isWalkBlocked(map, nx, ny)) continue;
+        if (navBlocked(map, blocked, nx, ny)) continue;
         // No cutting corners: diagonal moves need both orthogonal tiles open.
         if (dx !== 0 && dy !== 0) {
-          if (isWalkBlocked(map, cx + dx, cy) || isWalkBlocked(map, cx, cy + dy)) continue;
+          if (navBlocked(map, blocked, cx + dx, cy) || navBlocked(map, blocked, cx, cy + dy))
+            continue;
         }
         const ni = ny * w + nx;
         if (closed[ni]) continue;
@@ -174,11 +197,12 @@ export function randomWalkableTile(
   fx: number,
   fy: number,
   minDist: number,
+  blocked: ReadonlySet<number> | null = null,
 ): Waypoint | null {
   for (let tries = 0; tries < 60; tries++) {
     const tx = rngInt(rng, 1, map.width - 2);
     const ty = rngInt(rng, 1, map.height - 2);
-    if (isWalkBlocked(map, tx, ty)) continue;
+    if (navBlocked(map, blocked, tx, ty)) continue;
     const dx = tx - fx;
     const dy = ty - fy;
     if (dx * dx + dy * dy < minDist * minDist) continue;

@@ -71,7 +71,14 @@ function input(id: number, cmd: Partial<InputCmd>): Map<number, InputCmd> {
 }
 
 /** Plant a trap directly (already armed unless bornTick says otherwise). */
-function addTrap(w: World, squad: number, tx: number, ty: number, by = -1, bornTick?: number): Structure {
+function addTrap(
+  w: World,
+  squad: number,
+  tx: number,
+  ty: number,
+  by = -1,
+  bornTick?: number,
+): Structure {
   const s: Structure = {
     id: w.nextId++,
     kind: STRUCT_TRAP,
@@ -201,9 +208,7 @@ describe('arming and trigger', () => {
     expect(bystander.hp).toBe(getMaxHp(bystander)); // the snare closes on one leg
     expect(bystander.rootTicks).toBe(0);
     const hit = events.find((e) => e.k === 'hit');
-    expect(hit && hit.k === 'hit' && hit.kind === 'trap' && hit.attacker === builder.id).toBe(
-      true,
-    );
+    expect(hit && hit.k === 'hit' && hit.kind === 'trap' && hit.attacker === builder.id).toBe(true);
   });
 
   it('never bites its own squad', () => {
@@ -286,6 +291,36 @@ describe('kill credit', () => {
     expect(victim.rootTicks).toBe(0); // death clears the snare
     expect(builder.kills).toBe(1);
     expect(w.squads[0]!.keepGold).toBeGreaterThan(goldBefore);
+  });
+
+  it('posthumous exile spoils hit the ground, never a corpse (M4 s5 regression)', () => {
+    // The builder is DEAD and the squad is EXILED when the trap kills: the
+    // payout can't go to the keep (none) and must not ride a corpse's back
+    // (its death already spilled — nothing would ever spill THIS). It lands
+    // as a sack where the body lies. Found live: engineer bots planting traps
+    // made posthumous kills routine, and the dead-carrier invariant tripped.
+    const w = liveWorld();
+    const builder = spawnPlayer(w, CFG, 0, 'b', false, 'engineer', 3.5, 2.5);
+    const victim = spawnPlayer(w, CFG, 1, 'v', false, 'ranger', 10.5, 2.5);
+    victim.hp = 1;
+    victim.spawnedAtTick = -10_000;
+    addTrap(w, 0, 10, 2, builder.id);
+    w.squads[0]!.keepHp = 0; // exile: mint goes to carried... unless dead
+    builder.alive = false;
+    builder.hp = 0;
+
+    const sacksBefore = w.sacks.size;
+    const events = stepWorld(w, new Map(), CFG, arena);
+    const kill = events.find((e) => e.k === 'kill');
+    expect(kill && kill.k === 'kill' && kill.killer).toBe(builder.id);
+    expect(kill && kill.k === 'kill' && kill.gold).toBeGreaterThan(0);
+    expect(builder.carried).toBe(0); // the corpse carries nothing
+    const spoils = [...w.sacks.values()].filter(
+      (s) => Math.hypot(s.x - builder.x, s.y - builder.y) < 0.1,
+    );
+    expect(w.sacks.size).toBe(sacksBefore + 1);
+    expect(spoils.length).toBe(1);
+    expect(spoils[0]!.gold).toBe(kill && kill.k === 'kill' ? kill.gold : -1);
   });
 
   it('an orphaned trap (builder left) still bites — credit goes to nobody', () => {

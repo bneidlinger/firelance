@@ -3,10 +3,29 @@ import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
 import { solveIntercept } from '@shared/math/intercept';
 import { createRng, rngFloat, rngInt, type RngState } from '@shared/math/rng';
-import type { EntitySnap, InputMsg, SackSnap, ServerMsg, YouSnap } from '@shared/net/messages';
+import type {
+  EntitySnap,
+  InputMsg,
+  SackSnap,
+  ServerMsg,
+  StructSnap,
+  YouSnap,
+} from '@shared/net/messages';
 import { ST_CARRYING } from '@shared/net/messages';
+import { isWalkBlocked } from '@shared/map/types';
 import { tileRayClear } from '@shared/sim/vision';
-import { assignKeeps } from '@shared/sim/world';
+import {
+  BTN_BUILD,
+  BTN_BUILD_GATE,
+  BTN_BUILD_TOWER,
+  BTN_BUILD_TRAP,
+  PHASE_LIVE,
+  PHASE_PLACEMENT,
+  STRUCT_GATE,
+  STRUCT_TOWER,
+  STRUCT_TRAP,
+  STRUCT_WALL,
+} from '@shared/sim/world';
 import { findPath, randomWalkableTile, walkRayClear, type Waypoint } from './nav';
 
 // Transport-agnostic bot mind, Milestone 2: a combatant AND an economic actor.
@@ -24,6 +43,16 @@ import { findPath, randomWalkableTile, walkRayClear, type Waypoint } from './nav
 // target priority. Aim error is gaussian via the bot's own seeded rng — skill
 // knobs in BotSkill. Bots never read authoritative world state: positions come
 // from snapshots, walls from the shared map, own state from `you`.
+//
+// M4 s5 — structures enter the bot's world model, under fog like everything
+// else. Navigation consults a dynamic blocked-tile set: visible structures
+// (minus our own gates — a door for our bodies) plus BUMP MEMORY — when the
+// bot pushes against something the terrain grid calls open and doesn't move,
+// it blames the tiles directly ahead for ~10s and repaths. That's how walls
+// it has never SEEN (fog hides fresh enemy building) stop being infinite
+// treadmills: walk into it once, remember, route around. Expiry keeps false
+// positives from body-blocking harmless — and lets bots re-test a lane after
+// the wall might have been bombed through.
 
 export interface BotSkill {
   /** Gaussian aim error, radians (σ). 0 = aimbot. */
@@ -66,7 +95,16 @@ export const DEFAULT_SKILL: BotSkill = {
 };
 
 type FsmState =
-  'ROAM' | 'SEEK' | 'ATTACK' | 'FLEE' | 'LOOT' | 'BANK' | 'DEFEND' | 'SIEGE' | 'REBUILD';
+  'ROAM' | 'SEEK' | 'ATTACK' | 'FLEE' | 'LOOT' | 'BANK' | 'DEFEND' | 'SIEGE' | 'REBUILD' | 'BUILD';
+
+/** One slot in the engineer's fort plan (or a repair errand). */
+interface BuildJob {
+  tx: number;
+  ty: number;
+  btn: number;
+  cost: number;
+  repair: boolean;
+}
 
 const BTN_INTERACT = 8; // matches shared/sim/world.ts (old code uses 1/2/4 literals)
 const BTN_BOMB = 16;
@@ -77,6 +115,8 @@ const STALL_WINDOW_TICKS = 45; // 1.5s
 const STALL_MIN_MOVE = 0.5;
 const TARGET_MEMORY_TICKS = 150; // chase a ghost for 5s, then give up
 const STRAFE_FLIP_TICKS = 24;
+/** How long a bumped-into (invisible) blocker stays in nav memory (~10s). */
+const BUMP_MEMORY_TICKS = 300;
 
 interface TrackedEnemy {
   id: number;
@@ -102,6 +142,9 @@ export class BotBrain {
   private readonly squadOf = new Map<number, number>();
 
   private state: FsmState = 'ROAM';
+  /** Match phase (PHASE_*), from the welcome + phase events. */
+  private phase = PHASE_LIVE;
+  private phaseEndsTick = 0;
   private readonly enemies = new Map<number, TrackedEnemy>();
   private readonly bounties = new Map<number, number>();
   /** victimId -> tick until which they're spawn-protected in our eyes.
@@ -145,6 +188,44 @@ export class BotBrain {
   /** Where OUR keep fell (the spill to recover for the rebuild). */
   private ownRuin: Waypoint | null = null;
 
+  // ---- placement-phase claim (M4 s5)
+  /** Stable per-match desire noise per keep site (drawn once on welcome) —
+   *  different bots covet different ground, so match layouts vary. */
+  private siteDesire: number[] = [];
+  /** Site indices already claimed by ANY squad (keepClaimed events). */
+  private readonly claimedSiteIdxs = new Set<number>();
+  private ownClaimDone = false;
+  /** Current claim errand (site index into map.keeps; -1 = none). */
+  private claimTarget = -1;
+  /** Where we mustered — the non-claimers' leash anchor during placement. */
+  private musterAnchor: Waypoint | null = null;
+
+  // ---- engineer build state (M4 s5)
+  /** The fort plan, keep-relative, computed lazily when the keep moves. */
+  private buildPlan: Array<{ tx: number; ty: number; kind: number; btn: number; cost: number }> =
+    [];
+  /** Keep position the current plan was drawn for (replan when it moves). */
+  private buildPlanKeep: Waypoint | null = null;
+  /** Job picked during FSM transition, consumed by doBuild the same think. */
+  private currentBuildJob: BuildJob | null = null;
+  /** Last tick a build button was pressed (clean edges + cooldown respect). */
+  private lastBuildPressTick = -1_000_000;
+
+  // ---- structures & nav memory (M4 s5)
+  /** Visible structures, replaced wholesale each snapshot (fog = no memory). */
+  private structures: StructSnap[] = [];
+  /** Dynamic nav blockers: visible structures (minus own gates) ∪ live bumps. */
+  private navBlock: Set<number> = new Set();
+  /** tileIndex -> expiry tick — walls we walked into but can't see. */
+  private readonly bumpBlocked = new Map<number, number>();
+  /** Movement intent from the last emitted input (bump-stall detection). */
+  private lastMoveX = 0;
+  private lastMoveY = 0;
+  private lastIntentTick = -1_000_000;
+  private bumpAnchorX = 0;
+  private bumpAnchorY = 0;
+  private bumpAnchorTick = -1;
+
   private path: Waypoint[] | null = null;
   private wpIdx = 0;
   private pathGoal: Waypoint | null = null;
@@ -182,10 +263,26 @@ export class BotBrain {
           this.cfg = null; // unknown preset: fall back to sane defaults
         }
         this.tickRate = msg.tickRate;
-        this.keep = assignKeeps(this.map, 4)[this.mySquad] ?? null;
+        this.phase = msg.phase;
+        this.phaseEndsTick = msg.phaseEndsTick;
+        // welcome.keeps is THE keep source (provisional during placement;
+        // keepClaimed/keepRebuilt events move them from here on). Deriving
+        // from assignKeeps was an M0 relic that went stale the moment any
+        // squad claimed a non-default site.
         this.keepPos.clear();
-        assignKeeps(this.map, 4).forEach((k, sq) => this.keepPos.set(sq, k));
         this.keepHpBySquad.clear();
+        for (const k of msg.keeps) {
+          this.keepPos.set(k.squad, { x: k.x, y: k.y });
+          this.keepHpBySquad.set(k.squad, k.hp);
+        }
+        this.keep = this.keepPos.get(this.mySquad) ?? null;
+        // One stable desire draw per site: variety across bots and matches,
+        // stable within a match (re-rolling per think would thrash targets).
+        this.siteDesire = this.map.keeps.map(() => rngFloat(this.rng) * 24);
+        this.claimedSiteIdxs.clear();
+        this.ownClaimDone = false;
+        this.claimTarget = -1;
+        this.musterAnchor = null;
         this.ownRebuilds = 1;
         this.lastOwnAlarmTick = -1_000_000;
         this.ownRuin = null;
@@ -213,11 +310,23 @@ export class BotBrain {
         this.bankRetryAt = -1_000_000;
         this.bankStartTick = -1;
         this.atKeepSince = -1;
+        this.structures = [];
+        this.navBlock = new Set();
+        this.bumpBlocked.clear();
+        this.bumpAnchorTick = -1;
+        this.lastMoveX = 0;
+        this.lastMoveY = 0;
+        this.buildPlan = [];
+        this.buildPlanKeep = null;
+        this.currentBuildJob = null;
+        this.lastBuildPressTick = -1_000_000;
         break;
       case 'snap':
         this.you = msg.you;
         this.trackEnemies(msg.tick, msg.ents);
         this.sacks = msg.sacks;
+        this.structures = msg.structures;
+        this.rebuildNavBlock(msg.tick);
         if (msg.you.carried !== this.lastCarried) {
           this.lastCarried = msg.you.carried;
           this.carriedChangedTick = msg.tick;
@@ -247,12 +356,27 @@ export class BotBrain {
           } else if (ev.k === 'keepDestroyed') {
             this.keepHpBySquad.set(ev.squad, 0);
             if (ev.squad === this.mySquad) this.ownRuin = { x: ev.x, y: ev.y };
-          } else if (ev.k === 'keepRebuilt') {
+          } else if (ev.k === 'keepRebuilt' || ev.k === 'keepClaimed') {
+            // Claims (placement phase) and rebuilds both MOVE a squad's keep.
             this.keepPos.set(ev.squad, { x: ev.x, y: ev.y });
             if (ev.squad === this.mySquad) {
               this.keep = { x: ev.x, y: ev.y };
               this.ownRuin = null;
             }
+            if (ev.k === 'keepClaimed') {
+              // Mark the site taken (match by position) and stand down if it
+              // was ours — one claim per squad, final.
+              if (this.map) {
+                for (let i = 0; i < this.map.keeps.length; i++) {
+                  const s = this.map.keeps[i]!;
+                  if (Math.hypot(s.x - ev.x, s.y - ev.y) < 1) this.claimedSiteIdxs.add(i);
+                }
+              }
+              if (ev.squad === this.mySquad) this.ownClaimDone = true;
+            }
+          } else if (ev.k === 'phase') {
+            this.phase = ev.phase;
+            this.phaseEndsTick = ev.endsTick;
           }
         }
         break;
@@ -270,6 +394,77 @@ export class BotBrain {
       case 'error':
         break;
     }
+  }
+
+  /** Rebuild the dynamic nav-blocker set: visible structures — except traps
+   *  (never block; enemy ones never arrive anyway) and OUR OWN gates (a door
+   *  for our bodies, a wall for everyone else's) — plus unexpired bumps. */
+  private rebuildNavBlock(tick: number): void {
+    if (!this.map) return;
+    const w = this.map.width;
+    const s = new Set<number>();
+    for (const st of this.structures) {
+      if (st.k === STRUCT_TRAP) continue;
+      if (st.k === STRUCT_GATE && st.s === this.mySquad) continue;
+      s.add(st.ty * w + st.tx);
+    }
+    for (const [ti, until] of this.bumpBlocked) {
+      if (tick >= until) this.bumpBlocked.delete(ti);
+      else s.add(ti);
+    }
+    this.navBlock = s;
+  }
+
+  /**
+   * Think-level stall detector — the fog complement to snapshot structures.
+   * followPath's own stall check only covers A*-following; a bot DIRECT-
+   * steering into a wall it cannot see (fresh enemy building beyond vision)
+   * stalls with `walkRayClear` swearing the lane is open. When we intended to
+   * move for a window and went nowhere, blame the tiles directly ahead,
+   * remember them for BUMP_MEMORY_TICKS, and drop the path so the next think
+   * routes around. Body-block false positives expire harmlessly.
+   */
+  private checkBumpStall(tick: number): void {
+    const you = this.you!;
+    const l = Math.hypot(this.lastMoveX, this.lastMoveY);
+    if (l >= 0.1) this.lastIntentTick = tick;
+    // Only a SUSTAINED lack of intent parks the detector — followPath's own
+    // stall handling emits a single zero-move think when it drops a path, and
+    // that blip must not reset the window (the two detectors used to race:
+    // path-stall fired first, blipped, and this one never tripped).
+    if (tick - this.lastIntentTick > 8) {
+      this.bumpAnchorTick = -1;
+      return;
+    }
+    if (this.bumpAnchorTick < 0) {
+      this.bumpAnchorTick = tick;
+      this.bumpAnchorX = you.x;
+      this.bumpAnchorY = you.y;
+      return;
+    }
+    if (tick - this.bumpAnchorTick < STALL_WINDOW_TICKS) return;
+    const moved = Math.hypot(you.x - this.bumpAnchorX, you.y - this.bumpAnchorY);
+    this.bumpAnchorTick = tick;
+    this.bumpAnchorX = you.x;
+    this.bumpAnchorY = you.y;
+    if (moved >= STALL_MIN_MOVE || l < 0.1) return;
+
+    this.markBumpAhead(tick, this.lastMoveX / l, this.lastMoveY / l);
+  }
+
+  /** Blame the tiles directly ahead along (nx,ny) and force a fresh path. */
+  private markBumpAhead(tick: number, nx: number, ny: number): void {
+    const you = this.you!;
+    const map = this.map!;
+    for (const dist of [0.9, 1.7]) {
+      const tx = Math.floor(you.x + nx * dist);
+      const ty = Math.floor(you.y + ny * dist);
+      if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) continue;
+      this.bumpBlocked.set(ty * map.width + tx, tick + BUMP_MEMORY_TICKS);
+    }
+    this.rebuildNavBlock(tick);
+    this.path = null;
+    this.pathGoal = null;
   }
 
   /** Update last-seen enemy records (position + velocity estimate) from a snapshot. */
@@ -311,8 +506,16 @@ export class BotBrain {
       this.state = 'ROAM';
       this.path = null;
       this.targetId = -1;
+      this.lastMoveX = 0;
+      this.lastMoveY = 0;
+      this.bumpAnchorTick = -1;
       return null;
     }
+    this.checkBumpStall(tick);
+
+    // Placement phase preempts the whole combat FSM: nobody can fight yet,
+    // and the only decision on the table is WHERE HOME IS.
+    if (this.phase === PHASE_PLACEMENT) return this.doPlacement(tick);
 
     const maxHp = this.cfg ? getKit(this.cfg, you.cls).maxHp : 100;
     const hpFrac = you.hp / maxHp;
@@ -349,7 +552,11 @@ export class BotBrain {
           const range = this.cfg?.firebomb.range ?? 7;
           return Math.hypot(k.x - you.x, k.y - you.y) < range + 2;
         })();
-      const committed = carrying || this.bankerDuty(tick) || siegeReadyEarly;
+      // The engineer's standing errand: patch first, then the next fort slot.
+      const buildJob =
+        you.cls === 'engineer' && !carrying ? (this.repairJob() ?? this.nextSlotJob()) : null;
+      this.currentBuildJob = buildJob;
+      const committed = carrying || this.bankerDuty(tick) || siegeReadyEarly || buildJob !== null;
       const engage = this.skill.engageRange * (atSiegePost ? 0.25 : committed ? 0.5 : 1);
       const townNear =
         carrying &&
@@ -383,6 +590,10 @@ export class BotBrain {
       } else if (exiled && this.ownRebuilds > 0 && this.isBanker()) {
         // The comeback is the banker's job: gather the spill, raise the keep.
         this.state = 'REBUILD';
+      } else if (alarmed && !carrying && buildJob !== null && buildJob.repair) {
+        // Repairing under fire outranks circling the courtyard — patching the
+        // wall the bombs are hitting IS the engineer's defense.
+        this.state = 'BUILD';
       } else if (alarmed && !carrying) {
         this.state = 'DEFEND';
       } else if (this.bankerDuty(tick)) {
@@ -390,6 +601,13 @@ export class BotBrain {
         // (and the window it opens for the enemy is the M2 gameplay).
         if (this.state !== 'BANK') this.bankStartTick = tick; // entry only
         this.state = 'BANK';
+      } else if (buildJob !== null) {
+        // BUILD outranks SIEGE: when a 2-bot squad makes its engineer the
+        // aggressor (highest id), the fort must still finish before the
+        // bombing runs start — and losses pull the engineer home between
+        // sieges, which is the self-healing-fort loop working. Only
+        // engineers ever hold a buildJob, so nobody else feels this branch.
+        this.state = 'BUILD';
       } else if (siegeReady) {
         // The aggressor walks PAST distant enemies — only a fresh threat
         // inside the committed engage radius (above) interrupts the siege.
@@ -418,6 +636,8 @@ export class BotBrain {
         return this.doSiege(tick);
       case 'REBUILD':
         return this.doRebuild(tick);
+      case 'BUILD':
+        return this.doBuild(tick);
       default:
         return this.doRoam(tick);
     }
@@ -535,11 +755,103 @@ export class BotBrain {
 
   // ---------------------------------------------------------------- behaviors
 
+  /**
+   * Placement phase (doc §5.1): the squad's designated claimer (same bot as
+   * the banker — lowest id) walks to a preferred keep site and channels the
+   * claim; everyone else loiters near the muster point. Site choice = nearest
+   * FREE site minus a stable per-match desire bonus, restricted to sites
+   * reachable inside the remaining clock (walk + 3s channel + buffer) — a
+   * covetous pick that can't finish is just a forfeited claim, and the
+   * deadline auto-assign is a worse site than any deliberate one. Humans on
+   * the squad claiming first simply preempt us (one claim per squad, final).
+   */
+  private doPlacement(tick: number): InputMsg {
+    const you = this.you!;
+    if (!this.musterAnchor) this.musterAnchor = { x: you.x, y: you.y };
+
+    if (this.isBanker() && !this.ownClaimDone) {
+      // Validate / (re)pick the errand — a sniped target restarts elsewhere.
+      if (this.claimTarget >= 0 && this.claimedSiteIdxs.has(this.claimTarget)) {
+        this.claimTarget = -1;
+      }
+      if (this.claimTarget < 0) this.claimTarget = this.pickClaimSite(tick);
+      if (this.claimTarget >= 0) {
+        const site = this.map!.keeps[this.claimTarget]!;
+        const d = Math.hypot(site.x - you.x, site.y - you.y);
+        const reach = (this.cfg?.banking.interactRadius ?? 2.5) * 0.7;
+        if (d > reach) {
+          const move = this.moveToward(tick, site.x, site.y);
+          return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+        }
+        // On site: stand STILL (any movement input resets the channel) and
+        // hold interact until the keepClaimed event tells us it's done.
+        return this.input(tick, 0, 0, 1, 0, BTN_INTERACT);
+      }
+      // Nothing reachable — fall through to loitering; auto-assign has us.
+    }
+
+    // Escorts (and claimers with nothing to do): drift around the muster
+    // point so the phase reads as ALIVE, but never wander into the map.
+    const anchor = this.musterAnchor;
+    const dAnchor = Math.hypot(anchor.x - you.x, anchor.y - you.y);
+    if (dAnchor > 9) {
+      const move = this.moveToward(tick, anchor.x, anchor.y);
+      return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+    }
+    if (!this.path || this.wpIdx >= this.path.length) {
+      if (tick - this.lastPathThinkTick >= THINK_PATH_EVERY_TICKS) {
+        this.lastPathThinkTick = tick;
+        // A short hop to a random open tile near the anchor.
+        for (let tries = 0; tries < 8; tries++) {
+          const gx = anchor.x + rngInt(this.rng, -6, 6);
+          const gy = anchor.y + rngInt(this.rng, -6, 6);
+          this.setPath(tick, { x: gx, y: gy });
+          if (this.path && this.path.length > 0) break;
+        }
+      }
+    }
+    const move = this.followPath(tick);
+    return this.input(tick, move.mx, move.my, move.mx || 1, move.my, 0);
+  }
+
+  /** The claimer's shopping trip: nearest free site wins, minus a stable
+   *  desire bonus, hard-filtered to what the placement clock still allows. */
+  private pickClaimSite(tick: number): number {
+    const you = this.you!;
+    const speed = this.cfg ? getKit(this.cfg, you.cls).moveSpeed : 5;
+    const chanSec = this.cfg?.keep.claimChannelSec ?? 3;
+    const secLeft = (this.phaseEndsTick - tick) / this.tickRate - chanSec - 2;
+    if (secLeft <= 0) return -1;
+    // A* detours around water/forest eat into the straight-line budget.
+    const maxDist = secLeft * speed * 0.7;
+    let best = -1;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < this.map!.keeps.length; i++) {
+      if (this.claimedSiteIdxs.has(i)) continue;
+      const site = this.map!.keeps[i]!;
+      const d = Math.hypot(site.x - you.x, site.y - you.y);
+      if (d > maxDist) continue;
+      const score = d - (this.siteDesire[i] ?? 0);
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   private doRoam(tick: number): InputMsg {
     if (!this.path || this.wpIdx >= this.path.length) {
       if (tick - this.lastPathThinkTick >= THINK_PATH_EVERY_TICKS) {
         this.lastPathThinkTick = tick;
-        const t = randomWalkableTile(this.map!, this.rng, this.you!.x, this.you!.y, 15);
+        const t = randomWalkableTile(
+          this.map!,
+          this.rng,
+          this.you!.x,
+          this.you!.y,
+          15,
+          this.navBlock,
+        );
         if (t) this.setPath(tick, t);
       }
     }
@@ -748,6 +1060,178 @@ export class BotBrain {
     return this.input(tick, strafe.x, strafe.y, dx / (d || 1), dy / (d || 1), b);
   }
 
+  // ------------------------------------------------------------ engineering
+
+  /**
+   * (Re)draw the fort plan when the keep moves. Keep-relative, oriented by
+   * the dominant axis toward map center (where trouble comes from): a wall
+   * line 3 tiles out with a GATE in the middle (our door, their wall), side
+   * walls on the flanks, a watchtower ahead for early warning, and traps on
+   * the approach lane PAST the wall line — far enough out that a melee brawl
+   * at the gate doesn't chip-clear them unsprung (their reach out-ranges the
+   * trigger circle; we learned that watching fighters mow traps mid-swing).
+   * Slots that land on water/forest/town/site tiles are dropped at plan time;
+   * transient rejections (a body on the tile) just retry next cycle.
+   */
+  private ensureBuildPlan(): void {
+    const keep = this.keep;
+    const map = this.map;
+    const cfg = this.cfg;
+    if (!keep || !map || !cfg) {
+      this.buildPlan = [];
+      this.buildPlanKeep = null;
+      return;
+    }
+    if (
+      this.buildPlanKeep &&
+      Math.hypot(this.buildPlanKeep.x - keep.x, this.buildPlanKeep.y - keep.y) < 0.5
+    ) {
+      return; // plan is current
+    }
+
+    const kx = Math.floor(keep.x);
+    const ky = Math.floor(keep.y);
+    const dxc = map.width / 2 - keep.x;
+    const dyc = map.height / 2 - keep.y;
+    // Dominant-axis facing toward map center; ties/central keeps face east.
+    let px = 0;
+    let py = 0;
+    if (Math.abs(dxc) >= Math.abs(dyc)) px = dxc >= 0 ? 1 : -1;
+    else py = dyc >= 0 ? 1 : -1;
+    if (px === 0 && py === 0) px = 1;
+    const qx = -py;
+    const qy = px;
+
+    const at = (f: number, s: number): { tx: number; ty: number } => ({
+      tx: kx + px * f + qx * s,
+      ty: ky + py * f + qy * s,
+    });
+    const slots: Array<{ tx: number; ty: number; kind: number; btn: number; cost: number }> = [];
+    const push = (f: number, s: number, kind: number, btn: number, cost: number): void => {
+      const { tx, ty } = at(f, s);
+      if (tx < 1 || ty < 1 || tx >= map.width - 1 || ty >= map.height - 1) return;
+      if (isWalkBlocked(map, tx, ty)) return;
+      if (map.forest[ty * map.width + tx] === 1) return;
+      for (const t of map.towns) {
+        if (Math.floor(t.x) === tx && Math.floor(t.y) === ty) return;
+      }
+      for (const k of map.keeps) {
+        if (Math.floor(k.x) === tx && Math.floor(k.y) === ty) return;
+      }
+      slots.push({ tx, ty, kind, btn, cost });
+    };
+
+    const b = cfg.build;
+    // Priority order = list order: front walls, the gate, traps, tower, flanks.
+    push(3, -2, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+    push(3, 2, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+    push(3, -1, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+    push(3, 1, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+    push(3, 0, STRUCT_GATE, BTN_BUILD_GATE, b.gate.cost);
+    push(6, 0, STRUCT_TRAP, BTN_BUILD_TRAP, b.trap.cost);
+    push(6, 2, STRUCT_TRAP, BTN_BUILD_TRAP, b.trap.cost);
+    push(6, -2, STRUCT_TRAP, BTN_BUILD_TRAP, b.trap.cost);
+    push(5, 3, STRUCT_TOWER, BTN_BUILD_TOWER, b.tower.cost);
+    push(1, 3, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+    push(1, -3, STRUCT_WALL, BTN_BUILD, b.wall.cost);
+
+    this.buildPlan = slots;
+    this.buildPlanKeep = { x: keep.x, y: keep.y };
+  }
+
+  /** Nearby own structure worth patching (≤60% hp), if we can afford a hit. */
+  private repairJob(): BuildJob | null {
+    const you = this.you!;
+    const cfg = this.cfg;
+    if (!cfg || you.cls !== 'engineer') return null;
+    if (you.supply < cfg.build.repair.cost) return null;
+    let best: BuildJob | null = null;
+    let bestD = 9;
+    for (const s of this.structures) {
+      if (s.s !== this.mySquad) continue;
+      if (s.hp > s.mx * 0.6) continue;
+      const d = Math.hypot(s.tx + 0.5 - you.x, s.ty + 0.5 - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = { tx: s.tx, ty: s.ty, btn: BTN_BUILD, cost: cfg.build.repair.cost, repair: true };
+      }
+    }
+    return best;
+  }
+
+  /** First open slot in plan order. Unaffordable ⇒ null (save up — filling
+   *  the fort out of order buys trinkets with the wall budget). A slot with
+   *  ANY standing structure on it (ours or theirs) counts as closed. */
+  private nextSlotJob(): BuildJob | null {
+    const you = this.you!;
+    if (you.cls !== 'engineer') return null;
+    this.ensureBuildPlan();
+    for (const slot of this.buildPlan) {
+      let occupied = false;
+      for (const s of this.structures) {
+        if (s.tx === slot.tx && s.ty === slot.ty) {
+          occupied = true;
+          break;
+        }
+      }
+      if (occupied) continue;
+      if (you.supply < slot.cost) return null;
+      return { tx: slot.tx, ty: slot.ty, btn: slot.btn, cost: slot.cost, repair: false };
+    }
+    return null;
+  }
+
+  /**
+   * Walk to the job tile and place/patch. Placement aims THROUGH the reach:
+   * the target tile is floor(pos + aim×reach), so the bot holds a ring
+   * distance from the tile center — too close overshoots into the next tile,
+   * too far undershoots into this side. Presses are spaced past the build
+   * cooldown so every press is a clean rising edge.
+   */
+  private doBuild(tick: number): InputMsg {
+    const you = this.you!;
+    const job = this.currentBuildJob;
+    if (!job) return this.doRoam(tick);
+    const reach = this.cfg?.build.reach ?? 2;
+    const cdTicks = Math.round((this.cfg?.build.cooldownSec ?? 1.5) * this.tickRate) + 5;
+    const cx = job.tx + 0.5;
+    const cy = job.ty + 0.5;
+    const dx = cx - you.x;
+    const dy = cy - you.y;
+    const d = Math.hypot(dx, dy);
+
+    const threat = this.pickTarget(tick);
+    if (d > reach * 1.35) {
+      const move = this.moveToward(tick, cx, cy);
+      const aim = threat ? this.aimAt(threat, false) : { ax: move.mx || 1, ay: move.my };
+      return this.input(tick, move.mx, move.my, aim.ax, aim.ay, 0);
+    }
+    // On station: ORBIT the ring while pressing — placement has no stillness
+    // rule, and a builder who stands still is a hit-rate donation to every
+    // ranger in the treeline (the sanity harness caught exactly that). A
+    // tangential strafe with radial correction holds the press band.
+    const l = d || 1;
+    const nx = dx / l;
+    const ny = dy / l;
+    const tang = this.strafeDir(tick, nx, ny);
+    let mx = tang.x;
+    let my = tang.y;
+    if (d > reach * 1.05) {
+      mx += nx * 0.8;
+      my += ny * 0.8;
+    } else if (d < reach * 0.9) {
+      mx -= nx * 0.8;
+      my -= ny * 0.8;
+    }
+    let b = 0;
+    const inBand = d >= reach * 0.8 && d <= reach * 1.15;
+    if (inBand && tick - this.lastBuildPressTick >= cdTicks) {
+      b = job.btn;
+      this.lastBuildPressTick = tick;
+    }
+    return this.input(tick, mx, my, dx, dy, b);
+  }
+
   /** The exile comeback: recover the spilled vault, then raise a new keep. */
   private doRebuild(tick: number): InputMsg {
     const you = this.you!;
@@ -882,7 +1366,7 @@ export class BotBrain {
    *  a vision ray marches bots into the river bank forever.) */
   private moveToward(tick: number, gx: number, gy: number): { mx: number; my: number } {
     const you = this.you!;
-    if (walkRayClear(this.map!, you.x, you.y, gx, gy)) {
+    if (walkRayClear(this.map!, you.x, you.y, gx, gy, this.navBlock)) {
       const dx = gx - you.x;
       const dy = gy - you.y;
       const l = Math.hypot(dx, dy);
@@ -907,6 +1391,7 @@ export class BotBrain {
       Math.floor(you.y),
       Math.floor(goal.x),
       Math.floor(goal.y),
+      this.navBlock,
     );
     this.wpIdx = 0;
     this.stallTick = tick;
@@ -918,10 +1403,20 @@ export class BotBrain {
     const you = this.you!;
     if (!this.path || this.wpIdx >= this.path.length) return { mx: 0, my: 0 };
 
-    // Stall detection: barely moved over the window ⇒ path blocked by a body.
+    // Stall detection: barely moved over the window ⇒ something's in the way.
+    // We KNOW where we were headed (the current waypoint) — blame the tiles
+    // toward it before dropping the path, so the re-path actually detours.
+    // A transient body-block gets marked too; bump memory expires it.
     if (tick - this.stallTick >= STALL_WINDOW_TICKS) {
       const moved = Math.hypot(you.x - this.stallX, you.y - this.stallY);
       if (moved < STALL_MIN_MOVE) {
+        const wpAhead = this.path[this.wpIdx];
+        if (wpAhead) {
+          const dx = wpAhead.x - you.x;
+          const dy = wpAhead.y - you.y;
+          const l = Math.hypot(dx, dy);
+          if (l > 1e-6) this.markBumpAhead(tick, dx / l, dy / l);
+        }
         this.path = null;
         this.pathGoal = null;
         return { mx: 0, my: 0 };
@@ -947,6 +1442,9 @@ export class BotBrain {
   }
 
   private input(tick: number, mx: number, my: number, ax: number, ay: number, b: number): InputMsg {
+    // Movement intent feeds the bump-stall detector (invisible-wall memory).
+    this.lastMoveX = mx;
+    this.lastMoveY = my;
     const l = Math.hypot(ax, ay);
     return {
       t: 'input',
