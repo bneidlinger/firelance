@@ -60,12 +60,23 @@ export class RealtimeTicker {
 /**
  * Turbo driver for headless matches: ticks as fast as the CPU allows, yielding
  * to the event loop every 512 ticks so timers/sockets stay serviced.
+ * `stopWhen` (checked between ticks) ends the run early — tuning scripts cut
+ * at the first matchEnd instead of simming the auto-restarted next match.
+ * Returns the number of ticks actually driven.
  */
-export async function runTurboTicks(ticks: number, cb: () => void): Promise<void> {
+export async function runTurboTicks(
+  ticks: number,
+  cb: () => void,
+  stopWhen?: () => boolean,
+): Promise<number> {
+  let driven = 0;
   for (let i = 0; i < ticks; i++) {
+    if (stopWhen?.()) break;
     cb();
+    driven++;
     if ((i & 511) === 511) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
+  return driven;
 }

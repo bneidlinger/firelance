@@ -77,7 +77,7 @@ export const verifyConfig: GameConfig = defineConfig({
 export const verify5Config: GameConfig = defineConfig({
   name: 'verify5',
   match: { durationSec: 90, placementSec: 15, countdownSec: 3, restartSec: 8 },
-  rumors: { intervalSec: 8, richKeepGold: 200, carrierGold: 100 },
+  rumors: { intervalSec: 8, richKeepIntervalSec: 8, richKeepGold: 200, carrierGold: 100 },
 });
 
 const presets: Record<string, GameConfig> = {

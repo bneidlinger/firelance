@@ -26,6 +26,10 @@ export interface HarnessOpts {
   cfg?: GameConfig;
   /** Map id (default scrim_small — the pinned-seed CI arena). */
   mapId?: string;
+  /** Caller tap on raw sim events (tuning scripts count what they care about). */
+  onSimEvents?: (tick: number, events: SimEvent[]) => void;
+  /** Checked between ticks; true ends the run early (e.g. after one match). */
+  stopWhen?: () => boolean;
 }
 
 export interface CombatStats {
@@ -181,7 +185,10 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
     map,
     seed: opts.seed,
     record: true,
-    onSimEvents,
+    onSimEvents: (tick, events) => {
+      onSimEvents(tick, events);
+      opts.onSimEvents?.(tick, events);
+    },
     onRestart: () => {
       restarts++;
       destroyedEver.clear(); // fresh world, fresh keeps
@@ -214,7 +221,7 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
   let ticksInCurrentWorld = 0;
 
   const t0 = performance.now();
-  await runTurboTicks(ticks, () => {
+  const driven = await runTurboTicks(ticks, () => {
     match.tick();
     if (match.seed !== lastSeed) {
       // Auto-restart replaced the world mid-run.
@@ -333,7 +340,7 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
         }
       }
     }
-  });
+  }, opts.stopWhen);
   const wallMs = performance.now() - t0;
   combat.goldMinted = match.world.goldMinted;
 
@@ -382,7 +389,7 @@ export async function runInProcessMatch(opts: HarnessOpts): Promise<HarnessResul
   }
 
   return {
-    ticks,
+    ticks: driven,
     players: match.playerCount,
     finalHash,
     replayHash,

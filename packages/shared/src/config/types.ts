@@ -264,6 +264,10 @@ export interface GameConfig {
     carrierGold: number;
     /** A LIVING keep with vault ≥ this leaks a fuzzed ping (§18.1 anti-turtle). */
     richKeepGold: number;
+    /** Rich-keep ping cadence — SLOWER than player rumors by design: vaults
+     *  sit rich for minutes at a time, and per-interval pings at the player
+     *  cadence drowned the killfeed (~100/match in the first tuning pass). */
+    richKeepIntervalSec: number;
     /** How long a rumor stays warm: client ring fade AND bot chase horizon. */
     fadeSec: number;
   };

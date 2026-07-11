@@ -36,6 +36,7 @@ const cfg: GameConfig = defineConfig({
     carrierTier: 4,
     carrierGold: 100,
     richKeepGold: 300,
+    richKeepIntervalSec: 1,
     fadeSec: 12,
   },
 });
@@ -128,6 +129,17 @@ describe('who leaks', () => {
 
     s.keepHp = 0; // the vault spilled elsewhere; ruins don't gossip
     expect(runRumors(w, cfg, INTERVAL * 2)).toHaveLength(0);
+  });
+
+  it('rich keeps gossip on their own slower clock (richKeepIntervalSec)', () => {
+    const slow: GameConfig = {
+      ...cfg,
+      rumors: { ...cfg.rumors, richKeepIntervalSec: 2 }, // players 1s, keeps 2s
+    };
+    const w = mkWorld(slow);
+    mintGoldToKeep(w, 2, 400);
+    const rumors = runRumors(w, slow, INTERVAL * 4); // 4s
+    expect(rumors.filter((r) => r.kind === 'richKeep')).toHaveLength(2);
   });
 
   it('the dead never ping', () => {

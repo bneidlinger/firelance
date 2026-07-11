@@ -11,7 +11,10 @@ export const defaultConfig: GameConfig = {
   match: {
     squads: 4,
     playersPerSquad: 3,
-    durationSec: 30 * 60,
+    // 20-min clock cap. M5 tuning passes (scripts/tune-stats.ts): 12-bot
+    // matches on vale_full RESOLVE by elimination cascade at ~17 min — the
+    // clock is the stalemate backstop, not the expected ending.
+    durationSec: 20 * 60,
     placementSec: 30,
     countdownSec: 10,
     restartSec: 30,
@@ -148,8 +151,10 @@ export const defaultConfig: GameConfig = {
   },
   // Gossip cadence (M5): a Hunted player pings every ~20s with ±12u of slop
   // (tier 4 ≈ ±7u, Crownmarked ≈ ±4u — the noose tightens as the purse
-  // grows). Rich keeps at 500g+ vault leak the same way — turtling on a fat
-  // vault buys attention instead of safety.
+  // grows). Rich keeps leak on their OWN slow cadence — the first tuning
+  // pass ran them at the player cadence and got ~100 pings/match (spam);
+  // 700g at 45s reads as occasional pressure (~10-20/match), and bounty
+  // rumors stay the rare, special ones (0-7/match at tier 3+).
   rumors: {
     enabled: true,
     intervalSec: 20,
@@ -158,7 +163,8 @@ export const defaultConfig: GameConfig = {
     fuzzTierFactor: 0.6,
     carrierTier: 4,
     carrierGold: 200,
-    richKeepGold: 500,
+    richKeepGold: 700,
+    richKeepIntervalSec: 45,
     fadeSec: 12,
   },
   // Per-match map draw (M5, doc §13.2): on vale_full this is 4 anchors +

@@ -55,10 +55,13 @@ export function stepRumors(world: World, cfg: GameConfig, map: MapData, events: 
     });
   }
 
+  // Rich keeps gossip on their own SLOWER clock — a vault sits fat for
+  // minutes at a time; player-cadence pings drowned the killfeed.
+  const richInterval = secToTicks(cfg, cfg.rumors.richKeepIntervalSec);
   for (const s of world.squads) {
     if (s.eliminated || s.keepHp <= 0 || s.keepGold < cfg.rumors.richKeepGold) continue;
     // Offset keeps squad pings off the player-ping ticks (and each other's).
-    if ((world.tick + (s.id + 101) * 53) % interval !== 0) continue;
+    if ((world.tick + (s.id + 101) * 53) % richInterval !== 0) continue;
     events.push({
       k: 'rumor',
       tk: world.tick,
