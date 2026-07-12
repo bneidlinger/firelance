@@ -271,6 +271,54 @@
         z-index: 12;
         transition: opacity 0.09s;
       }
+      #settings {
+        bottom: 44px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.78);
+        border: 1px solid #3a3f33;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-size: 12px;
+        display: none;
+        pointer-events: auto;
+        z-index: 40;
+      }
+      #settings .hdr {
+        color: #d5aa54;
+        font-weight: bold;
+        margin-bottom: 6px;
+      }
+      #settings label {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin: 4px 0;
+      }
+      #settings input[type='range'] {
+        width: 130px;
+        accent-color: #d5aa54;
+      }
+      #settings .sub {
+        color: #b9ad98;
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      #gearbtn {
+        bottom: 12px;
+        right: 10px;
+        pointer-events: auto;
+        cursor: pointer;
+        font-size: 15px;
+        opacity: 0.55;
+        background: rgba(0, 0, 0, 0.45);
+        border-radius: 4px;
+        padding: 2px 7px;
+        z-index: 40;
+      }
+      #gearbtn:hover {
+        opacity: 1;
+      }
     </style>
   </head>
   <body>
@@ -303,6 +351,13 @@
     <div id="toast" class="hud"></div>
     <div id="overlay" class="hud"></div>
     <div id="banner" class="hud"></div>
+    <div id="settings" class="hud">
+      <div class="hdr">Settings</div>
+      <label>Master <input id="vol-master" type="range" min="0" max="100" /></label>
+      <label>Effects <input id="vol-sfx" type="range" min="0" max="100" /></label>
+      <div class="sub">Esc opens &amp; closes</div>
+    </div>
+    <div id="gearbtn" class="hud" title="Settings (Esc)">⚙</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

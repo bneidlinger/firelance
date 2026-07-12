@@ -1,6 +1,17 @@
 // Procedural SFX: a tiny WebAudio synth, zero assets. Every sound is a few
 // oscillator/noise notes with pitch slides and exponential decay — readable
 // hit feedback is part of the M1 fun verdict, art fidelity is not.
+// M6 s1: stereo pan by bearing, per-name spam gate, persisted volume buses.
+
+import { FX } from '../fx/config';
+import {
+  loadLevels,
+  panFor,
+  saveLevels,
+  Throttle,
+  type AudioChannel,
+  type AudioLevels,
+} from './mixer';
 
 type Wave = OscillatorType | 'noise';
 
@@ -21,15 +32,30 @@ interface Note {
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let sfxBus: GainNode | null = null;
+let ambientBus: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
+
+// Guarded so importing this module in node tests can't touch the DOM.
+const store = typeof localStorage === 'undefined' ? null : localStorage;
+const levels = loadLevels(store);
+const throttle = new Throttle();
+const stats = { played: 0, throttled: 0, culled: 0 };
 
 function ensureCtx(): AudioContext | null {
   if (ctx) return ctx;
   try {
     ctx = new AudioContext();
     master = ctx.createGain();
-    master.gain.value = 0.5;
+    master.gain.value = levels.master;
     master.connect(ctx.destination);
+    // Channel buses under master: effects now; the s4 ambient bed later.
+    sfxBus = ctx.createGain();
+    sfxBus.gain.value = levels.sfx;
+    sfxBus.connect(master);
+    ambientBus = ctx.createGain();
+    ambientBus.gain.value = levels.ambient;
+    ambientBus.connect(master);
     const len = ctx.sampleRate;
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = noiseBuf.getChannelData(0);
@@ -40,22 +66,48 @@ function ensureCtx(): AudioContext | null {
   return ctx;
 }
 
+/** Live volume control (settings panel). Applies immediately and persists. */
+export function setAudioLevel(ch: AudioChannel, v: number): void {
+  const clamped = Math.max(0, Math.min(1, v));
+  levels[ch] = clamped;
+  if (ch === 'master' && master) master.gain.value = clamped;
+  if (ch === 'sfx' && sfxBus) sfxBus.gain.value = clamped;
+  if (ch === 'ambient' && ambientBus) ambientBus.gain.value = clamped;
+  saveLevels(store, levels);
+}
+
+export function audioLevels(): AudioLevels {
+  return { ...levels };
+}
+
+export function audioStats(): { played: number; throttled: number; culled: number } {
+  return { ...stats };
+}
+
 /** Call once from a user gesture (browsers gate audio until then). */
 export function unlockAudio(): void {
   const c = ensureCtx();
   if (c && c.state === 'suspended') void c.resume();
 }
 
-function play(notes: Note[], volume = 1): void {
+function play(notes: Note[], volume = 1, pan = 0): void {
   const c = ensureCtx();
-  if (!c || !master || c.state !== 'running') return;
+  if (!c || !sfxBus || c.state !== 'running') return;
+  // One panner per SOUND, shared by its notes — the notes are one event.
+  let out: AudioNode = sfxBus;
+  if (pan !== 0) {
+    const panner = c.createStereoPanner();
+    panner.pan.value = pan;
+    panner.connect(sfxBus);
+    out = panner;
+  }
   const t0 = c.currentTime;
   for (const n of notes) {
     const at = t0 + (n.at ?? 0);
     const gain = c.createGain();
     gain.gain.setValueAtTime(n.g * volume, at);
     gain.gain.exponentialRampToValueAtTime(0.001, at + n.d);
-    gain.connect(master);
+    gain.connect(out);
 
     if (n.wave === 'noise') {
       const src = c.createBufferSource();
@@ -83,6 +135,7 @@ function play(notes: Note[], volume = 1): void {
 export type SfxName =
   | 'shoot'
   | 'arrowHit'
+  | 'arrowThud'
   | 'swing'
   | 'meleeHit'
   | 'block'
@@ -112,6 +165,12 @@ const SOUNDS: Record<SfxName, Note[]> = {
   arrowHit: [
     { wave: 'noise', f0: 0, d: 0.09, g: 0.7, lp: 2600 },
     { wave: 'triangle', f0: 300, f1: 140, d: 0.1, g: 0.5 },
+  ],
+  // An arrow dying in dirt or timber: dry wood knock, quieter than a hit —
+  // it marks a MISS, it must not read as one.
+  arrowThud: [
+    { wave: 'sine', f0: 210, f1: 90, d: 0.07, g: 0.4 },
+    { wave: 'noise', f0: 0, d: 0.05, g: 0.25, lp: 1100 },
   ],
   swing: [{ wave: 'noise', f0: 0, d: 0.13, g: 0.35, lp: 1200 }],
   meleeHit: [
@@ -207,7 +266,8 @@ const SOUNDS: Record<SfxName, Note[]> = {
 
 /**
  * Play a named sound; world-positioned sounds fade with distance from the
- * listener and cut off entirely beyond earshot.
+ * listener, pan toward their bearing, and cut off entirely beyond earshot.
+ * Same-name repeats inside the spam window collapse into one voice.
  */
 export function sfx(
   name: SfxName,
@@ -215,11 +275,21 @@ export function sfx(
   listener?: { x: number; y: number },
 ): void {
   let volume = 1;
+  let pan = 0;
   if (at && listener) {
     const d = Math.hypot(at.x - listener.x, at.y - listener.y);
-    const EARSHOT = 26;
-    if (d > EARSHOT) return;
-    volume = Math.max(0.12, 1 - d / EARSHOT);
+    if (d > FX.audio.earshot) {
+      stats.culled++;
+      return;
+    }
+    volume = Math.max(0.12, 1 - d / FX.audio.earshot);
+    pan = panFor(at.x - listener.x);
   }
-  play(SOUNDS[name], volume);
+  const gap = FX.audio.gapOverrides[name] ?? FX.audio.minGapMs;
+  if (!throttle.allow(name, performance.now(), gap)) {
+    stats.throttled++;
+    return;
+  }
+  stats.played++;
+  play(SOUNDS[name], volume, pan);
 }

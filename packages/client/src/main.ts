@@ -25,7 +25,8 @@ import {
   STRUCT_TRAP,
 } from '@shared/sim/world';
 import { canSeePoint } from '@shared/sim/vision';
-import { sfx, unlockAudio } from './audio/sfx';
+import { audioStats, sfx, unlockAudio } from './audio/sfx';
+import { FX } from './fx/config';
 import { InputState } from './input/input';
 import { Connection } from './net/connection';
 import { Interpolation } from './net/interpolation';
@@ -33,14 +34,17 @@ import { Prediction } from './net/prediction';
 import { BombLayer } from './render/bombs';
 import { EntityLayer, type OwnVisual } from './render/entities';
 import { FogLayer } from './render/fog';
+import { FloatTextLayer } from './render/floattext';
 import { FxLayer } from './render/fx';
 import { GhostMemory } from './render/ghosts';
+import { ParticleLayer } from './render/particles';
 import { Hud, TIER_COLORS, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
 import { Scene, SQUAD_COLORS } from './render/scene';
 import { StructureLayer } from './render/structures';
+import { initSettings } from './ui/settings';
 import { Overlay, showBanner } from './debug/overlay';
 
 // Firelance client. URL params:
@@ -83,6 +87,10 @@ interface GameState {
   /** Rumor pings — a second fx pool on the ABOVE-FOG layer (gossip marks
    *  places nobody can see; the fog must not swallow it). */
   pings: FxLayer;
+  /** Pooled particles (M6 s1) — world matter, fog-masked like sparks. */
+  particles: ParticleLayer;
+  /** Rising gold text (M6 s1) — announcements, so above fog like pings. */
+  floats: FloatTextLayer;
   /** Last-known enemy structures (M5) — rendered dimmed under fog. */
   ghosts: GhostMemory;
   fog: FogLayer;
@@ -321,13 +329,22 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'projEnd':
       game.projectiles.onEnd(ev);
-      if (ev.hit === undefined) game.fx.arrowImpact(ev.x, ev.y);
+      if (ev.hit === undefined) {
+        // The s1 exemplar: an arrow dying in terrain answers with splinters
+        // and a dry panned knock — a miss whose direction you can hear.
+        game.fx.arrowImpact(ev.x, ev.y);
+        game.particles.emit(ev.x, ev.y, FX.emit.arrowThud);
+        sfx('arrowThud', { x: ev.x, y: ev.y }, listener);
+      }
       break;
     case 'swing':
       if (ev.id !== game.ownId) sfx('swing', { x: ev.x, y: ev.y }, listener);
       break;
     case 'hit': {
       game.fx.hitSpark(ev.x, ev.y, ev.blocked);
+      if (ev.kind === 'arrow' && !ev.blocked) {
+        game.particles.emit(ev.x, ev.y, FX.emit.arrowFlesh);
+      }
       game.entities.flash(ev.victim);
       game.lastHitPos.set(ev.victim, { x: ev.x, y: ev.y });
       // Trap damage keeps quiet here — trapTriggered owns the snap sound.
@@ -352,6 +369,10 @@ function handleEvent(ev: NetEvent): void {
       );
       const pos = game.lastHitPos.get(ev.victim);
       if (pos) game.fx.death(pos.x, pos.y, SQUAD_COLORS[victim?.squad ?? 0] ?? 0xffffff);
+      // Bounty made visible where it was earned. Only where we SAW the hit —
+      // lastHitPos is fed by positionally-filtered events, so this can't leak
+      // a kill's location through the fog.
+      if (pos && ev.gold > 0) game.floats.show(pos.x, pos.y, `+${ev.gold}g`, 0xf2d68c);
       if (ev.victim === game.ownId) {
         game.lastKillerName = killer?.name ?? null;
         sfx('ownDeath');
@@ -372,6 +393,9 @@ function handleEvent(ev: NetEvent): void {
       const by = roster.get(ev.by);
       game.hud.bankedLine(by?.name ?? `#${ev.by}`, ev.squad, ev.amount);
       game.fx.respawnRing(ev.x, ev.y, 0xf2d68c);
+      // Deposits are public news (the killfeed already says so) and towns are
+      // public geography — floating the amount over fog reveals nothing new.
+      game.floats.show(ev.x, ev.y, `+${ev.amount}g banked`, 0xf2d68c);
       if (ev.squad === game.ownSquad) {
         sfx('banked'); // your gold is SAFE — full-volume payoff chime
         game.hud.toast(`${ev.amount}g banked — it's safe`);
@@ -597,6 +621,8 @@ async function setupScene(
   game?.bombs.clear();
   game?.keeps.clear();
   game?.pings.clear();
+  game?.particles.clear();
+  game?.floats.clear();
 
   game = {
     cfg,
@@ -613,8 +639,10 @@ async function setupScene(
     structures: new StructureLayer(scene.structureLayer),
     bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
+    particles: new ParticleLayer(scene.fxLayer),
     fx: new FxLayer(scene.fxLayer),
     pings: new FxLayer(scene.pingLayer),
+    floats: new FloatTextLayer(scene.pingLayer),
     ghosts: new GhostMemory(),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
@@ -772,7 +800,9 @@ function frame(now: number): void {
   game.bombs.frame(renderTick, now);
   game.keeps.frame(now);
   game.fx.frame(now);
+  game.particles.frame(now);
   game.pings.frame(now);
+  game.floats.frame(now);
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
 
@@ -1047,6 +1077,11 @@ window.__fl = {
     roster: roster.size,
     phase: game?.phase,
     projectiles: game?.projectiles.counts() ?? null,
+    // Juice-kit probes (M6 s1): pool health + audio gate counters. A soak
+    // asserts `alive` returns to ~0 and `stolen` stays sane (no leak, no spam).
+    fx: game
+      ? { particles: game.particles.stats(), floats: game.floats.stats(), audio: audioStats() }
+      : null,
     you: latestYou
       ? {
           hp: latestYou.hp,
@@ -1100,4 +1135,5 @@ window.__fl = {
   }),
 };
 
+initSettings();
 conn.connect();
