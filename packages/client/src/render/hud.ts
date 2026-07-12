@@ -1,5 +1,6 @@
 import type { ClassId, GameConfig } from '@shared/config';
 import { getKit, secToTicks } from '@shared/config';
+import { FX } from '../fx/config';
 import { bountyTier, carrySpeedFactor } from '@shared/sim/systems/economy';
 import type { RosterEntry, ScoreMsg, SummaryMsg, YouSnap } from '@shared/net/messages';
 import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, PHASE_PLACEMENT } from '@shared/sim/world';
@@ -26,8 +27,11 @@ export class Hud {
   private lastSummary: SummaryMsg | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private alarmTimer: ReturnType<typeof setTimeout> | null = null;
+  private momentTimer: ReturnType<typeof setTimeout> | null = null;
   private flashUntil = 0;
   private lowHpWas = false;
+  /** End-screen count-up start (M6 s3); 0 = not animating. */
+  private endCountStart = 0;
 
   constructor(cfg: GameConfig) {
     this.cfg = cfg;
@@ -48,6 +52,8 @@ export class Hud {
     el('prompt').style.display = 'none';
     el('alarm').style.opacity = '0';
     el('exile').style.display = 'none';
+    el('banner').style.display = 'none'; // stale moments don't survive a restart
+    this.endCountStart = 0;
   }
 
   // ---- own state -----------------------------------------------------------
@@ -170,6 +176,17 @@ export class Hud {
       if (p.innerHTML !== html) p.innerHTML = html;
       p.style.display = 'block';
     }
+  }
+
+  /** A transient center-screen moment ("THE HUNT IS ON", a keep falling) —
+   *  reuses the #banner element; the persistent disconnect banner simply
+   *  outlives any moment because nothing re-hides after it. */
+  moment(html: string, ms = FX.moments.bannerMs): void {
+    const b = el('banner');
+    b.innerHTML = html;
+    b.style.display = 'block';
+    if (this.momentTimer) clearTimeout(this.momentTimer);
+    this.momentTimer = setTimeout(() => (b.style.display = 'none'), ms);
   }
 
   /** The under-attack klaxon banner; fades on its own. */
@@ -334,7 +351,7 @@ export class Hud {
         const fate = s.eliminated ? ' 💀' : '';
         return (
           `<tr style="${rowStyle}"><td style="color:${SQUAD_CSS[s.squad]}">${names[s.squad]}${fate}</td>` +
-          `<td style="color:#f2d68c">${s.banked}g</td>` +
+          `<td style="color:#f2d68c" class="bankedNum" data-final="${s.banked}">0g</td>` +
           `<td style="color:#b9ad98">${s.gold}g</td><td>${s.kills}</td>` +
           `<td style="color:#b9ad98">${members}${you}</td></tr>`
         );
@@ -346,6 +363,7 @@ export class Hud {
       `<canvas id="goldflow" width="520" height="180" style="display:none;margin:14px auto 0;max-width:92%"></canvas>` +
       `<div class="restart"></div>`;
     el('endscreen').style.display = 'block';
+    this.endCountStart = performance.now(); // banked totals count up (M6 s3)
     this.drawGoldFlow();
   }
 
@@ -441,6 +459,16 @@ export class Hud {
     for (const line of this.killfeedLines) {
       const age = nowMs - line.bornMs;
       if (age > 6000) line.el.style.opacity = '0';
+    }
+    // End-screen count-up: the final standings EARN their numbers.
+    if (this.endCountStart > 0) {
+      const t = Math.min(1, (nowMs - this.endCountStart) / FX.moments.countUpMs);
+      const ease = 1 - (1 - t) ** 3;
+      for (const cell of document.querySelectorAll<HTMLElement>('#endscreen .bankedNum')) {
+        const final = Number(cell.dataset['final'] ?? '0');
+        cell.textContent = `${Math.round(final * ease)}g`;
+      }
+      if (t >= 1) this.endCountStart = 0;
     }
   }
 }

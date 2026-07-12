@@ -1,4 +1,5 @@
 import { configHash, getConfigPreset, getKit, secToTicks, type GameConfig } from '@shared/config';
+import { bountyTier } from '@shared/sim/systems/economy';
 import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
 import { applyVariant } from '@shared/map/variant';
@@ -116,6 +117,12 @@ interface GameState {
   lastAim: { ax: number; ay: number };
   lastKillerName: string | null;
   lastHitPos: Map<number, { x: number; y: number }>;
+  /** Own-keep alarm pointer deadline (M6 s3); set by own-squad keepHit. */
+  alarmUntilMs: number;
+  /** Last seen own bounty tier; -1 = unseeded (no ceremony on first read). */
+  lastOwnTier: number;
+  /** Deposit channel quarter last ticked (-1 = idle); drives rising plucks. */
+  lastBankQuarter: number;
 }
 
 const roster = new Map<number, RosterEntry>();
@@ -413,6 +420,7 @@ function handleEvent(ev: NetEvent): void {
       // Deposits are public news (the killfeed already says so) and towns are
       // public geography — floating the amount over fog reveals nothing new.
       game.floats.show(ev.x, ev.y, `+${ev.amount}g banked`, 0xf2d68c);
+      game.particles.emit(ev.x, ev.y, FX.emit.coinBurst);
       if (ev.squad === game.ownSquad) {
         sfx('banked'); // your gold is SAFE — full-volume payoff chime
         game.hud.toast(`${ev.amount}g banked — it's safe`);
@@ -476,6 +484,7 @@ function handleEvent(ev: NetEvent): void {
       }
       if (ev.squad === game.ownSquad) {
         game.hud.alarm('⚠ KEEP UNDER ATTACK ⚠');
+        game.alarmUntilMs = performance.now() + FX.moments.alarmPointerMs;
         sfx('alarm');
       }
       break;
@@ -498,6 +507,12 @@ function handleEvent(ev: NetEvent): void {
       if (ev.squad === game.ownSquad) {
         game.hud.alarm('☠ YOUR KEEP HAS FALLEN ☠');
         updateExileStrip();
+      } else {
+        // A keep falling is THE map moment — everyone gets the banner, not
+        // just a killfeed line.
+        game.hud.moment(
+          `<span style="color:${SQUAD_CSS_SAFE(ev.squad)}">🔥 ${['RED', 'BLUE', 'GREEN', 'GOLD'][ev.squad]} KEEP FALLS</span>`,
+        );
       }
       break;
     }
@@ -556,6 +571,7 @@ function handleEvent(ev: NetEvent): void {
       if (ev.squad === game.ownSquad) {
         game.ownEliminated = true;
         sfx('ownDeath');
+        game.hud.moment('<span style="color:#f05a4d">☠ YOUR SQUAD IS ELIMINATED ☠</span>', 3200);
         updateExileStrip();
       }
       break;
@@ -601,6 +617,7 @@ function handleEvent(ev: NetEvent): void {
       if (ev.phase === PHASE_LIVE) {
         game.hud.hideEndScreen();
         sfx('live');
+        game.hud.moment('<span style="color:#f2d68c">⚔ THE HUNT IS ON ⚔</span>', 1800);
       }
       break;
     case 'matchEnd':
@@ -688,6 +705,9 @@ async function setupScene(
     lastAim: { ax: 1, ay: 0 },
     lastHitPos: new Map(),
     lastKillerName: null,
+    alarmUntilMs: 0,
+    lastOwnTier: -1,
+    lastBankQuarter: -1,
   };
   for (const [squad, info] of keepInfo) game.keeps.update(squad, info.x, info.y, info.hp);
   updateExileStrip();
@@ -868,6 +888,66 @@ function frame(now: number): void {
   if (lowHp && now - lastBeatMs > FX.combat.heartbeatGapMs) {
     lastBeatMs = now;
     sfx('heartbeat');
+  }
+
+  // ---- the big-moment watchers (M6 s3) ----
+  // Critical keeps smolder: wisps off any living keep under the red-bar tier.
+  for (const k of game.keepInfo.values()) {
+    if (
+      k.hp > 0 &&
+      k.hp / game.cfg.keep.maxHp < FX.moments.keepCriticalFrac &&
+      Math.random() < dtMs / FX.moments.smokeEveryMs
+    ) {
+      game.particles.emit(k.x, k.y, FX.emit.smoke);
+    }
+  }
+  // Own-keep alarm pointer: an edge-of-screen arrow toward home while the
+  // klaxon is fresh — the banner says ATTACKED, this says WHERE.
+  const pointer = document.getElementById('keeppointer')!;
+  if (now < game.alarmUntilMs && ownPos && game.ownKeep) {
+    const dx = game.ownKeep.x - ownPos.x;
+    const dy = game.ownKeep.y - ownPos.y;
+    if (Math.hypot(dx, dy) > 12) {
+      const ang = Math.atan2(dy, dx);
+      // Pane pitfall: window.innerWidth can be 0 — trust the renderer.
+      const w = window.innerWidth || scene.app.renderer.width;
+      const h = window.innerHeight || scene.app.renderer.height;
+      const rad = Math.min(w, h) / 2 - 46;
+      pointer.style.display = 'block';
+      pointer.style.transform =
+        `translate(${w / 2 + Math.cos(ang) * rad - 11}px, ${h / 2 + Math.sin(ang) * rad - 14}px) ` +
+        `rotate(${ang * (180 / Math.PI) + 90}deg)`;
+    } else {
+      pointer.style.display = 'none'; // home is on screen — the keep IS the pointer
+    }
+  } else if (pointer.style.display !== 'none') {
+    pointer.style.display = 'none';
+  }
+  // Bounty tier-up (own only): your name got heavier — a wanted-poster beat.
+  if (latestYou) {
+    const tier = bountyTier(game.cfg, latestYou.bounty);
+    if (game.lastOwnTier >= 0 && tier > game.lastOwnTier) {
+      game.hud.moment(
+        `<span style="color:${TIER_COLORS[tier] ?? '#fff'}">★ ${(TIER_NAMES[tier] ?? '').toUpperCase()} ★</span>`,
+        1900,
+      );
+      game.hud.vignette(); // one watched-from-the-dark flicker
+      sfx('tierUp');
+    }
+    game.lastOwnTier = tier;
+  }
+  // The deposit channel plucks a rising note at each quarter — progress you
+  // can hear while your eyes stay on the treeline.
+  const bankTicks = latestYou?.bankTicks ?? 0;
+  if (bankTicks > 0) {
+    const total = secToTicks(game.cfg, game.cfg.banking.bankChannelSec);
+    const quarter = Math.min(3, Math.floor((4 * bankTicks) / total));
+    if (quarter > game.lastBankQuarter) {
+      game.lastBankQuarter = quarter;
+      sfx('channelTick', undefined, undefined, 1 + quarter * FX.moments.channelPitchStep);
+    }
+  } else {
+    game.lastBankQuarter = -1;
   }
 
   // ---- fog from the same squad viewers computed above.

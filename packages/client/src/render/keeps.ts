@@ -69,6 +69,23 @@ export class KeepLayer {
       g.circle(0, 0, 4).fill(color);
       // Simple bastion square behind the dot so keeps read as buildings.
       g.rect(-7, -7, 14, 14).stroke({ width: 2, color, alpha: 0.9 });
+      // Damage states (M6 s3): cracks spread at the hp-bar's own color
+      // thresholds — the wall tells the same story as the bar. Public info
+      // (keep hp is on every score), derived, nothing new on the wire.
+      const frac = hp / this.maxHp;
+      const crack = { width: 1.5, color: 0x14170f, alpha: 0.85 } as const;
+      if (frac <= 0.75) {
+        g.moveTo(-7, -3).lineTo(-2, -1).lineTo(-4, 3).stroke(crack);
+      }
+      if (frac <= 0.55) {
+        g.moveTo(7, -5).lineTo(3, -2).lineTo(5, 1).stroke(crack);
+        g.moveTo(0, 7).lineTo(1, 3).stroke(crack);
+      }
+      if (frac <= 0.25) {
+        g.moveTo(-7, 5).lineTo(-3, 2).lineTo(-5, -2).lineTo(-1, -4).stroke(crack);
+        g.moveTo(7, 6).lineTo(2, 2).stroke(crack);
+        g.rect(-7, -7, 14, 14).fill({ color: 0x14170f, alpha: 0.22 });
+      }
     } else {
       // The ruin: broken grey ring + rubble X. Still a place — just a dead one.
       g.circle(0, 0, this.interactRadius * TILE).stroke({

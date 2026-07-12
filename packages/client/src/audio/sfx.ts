@@ -90,7 +90,7 @@ export function unlockAudio(): void {
   if (c && c.state === 'suspended') void c.resume();
 }
 
-function play(notes: Note[], volume = 1, pan = 0): void {
+function play(notes: Note[], volume = 1, pan = 0, pitchMul = 1): void {
   const c = ensureCtx();
   if (!c || !sfxBus || c.state !== 'running') return;
   // One panner per SOUND, shared by its notes — the notes are one event.
@@ -123,8 +123,10 @@ function play(notes: Note[], volume = 1, pan = 0): void {
     } else {
       const osc = c.createOscillator();
       osc.type = n.wave;
-      osc.frequency.setValueAtTime(n.f0, at);
-      if (n.f1 && n.f1 !== n.f0) osc.frequency.exponentialRampToValueAtTime(n.f1, at + n.d);
+      osc.frequency.setValueAtTime(n.f0 * pitchMul, at);
+      if (n.f1 && n.f1 !== n.f0) {
+        osc.frequency.exponentialRampToValueAtTime(n.f1 * pitchMul, at + n.d);
+      }
       osc.connect(gain);
       osc.start(at);
       osc.stop(at + n.d);
@@ -152,6 +154,8 @@ export type SfxName =
   | 'dash'
   | 'heartbeat'
   | 'step'
+  | 'tierUp'
+  | 'channelTick'
   | 'countdown'
   | 'live'
   | 'matchEnd'
@@ -231,11 +235,14 @@ const SOUNDS: Record<SfxName, Note[]> = {
     { wave: 'square', f0: 392, f1: 330, d: 0.16, g: 0.4 },
     { wave: 'square', f0: 392, f1: 330, d: 0.22, g: 0.4, at: 0.22 },
   ],
-  // A keep coming down: long rumble under a falling tone.
+  // A keep coming down: long rumble under a falling tone, and a low horn
+  // swelling underneath (M6 s3) — thunder for everyone, and a dirge.
   keepFall: [
     { wave: 'sawtooth', f0: 180, f1: 40, d: 0.9, g: 0.55 },
     { wave: 'noise', f0: 0, d: 1.1, g: 0.6, lp: 500 },
     { wave: 'sine', f0: 55, f1: 30, d: 1.0, g: 0.7 },
+    { wave: 'sawtooth', f0: 98, f1: 82, d: 0.8, g: 0.28, at: 0.18 },
+    { wave: 'sawtooth', f0: 147, f1: 123, d: 0.7, g: 0.16, at: 0.22 },
   ],
   // The comeback: solid rising fourth, sturdier than `banked`.
   rebuilt: [
@@ -263,10 +270,20 @@ const SOUNDS: Record<SfxName, Note[]> = {
   // A boot on dirt: barely-there tick, self-only, paced by its own timer.
   step: [{ wave: 'noise', f0: 0, d: 0.045, g: 0.09, lp: 900 }],
   countdown: [{ wave: 'square', f0: 660, d: 0.09, g: 0.3 }],
+  // The hunt opens: the old two-note call plus a war-horn under it.
   live: [
     { wave: 'square', f0: 660, d: 0.1, g: 0.35 },
     { wave: 'square', f0: 990, d: 0.22, g: 0.35, at: 0.1 },
+    { wave: 'sawtooth', f0: 165, f1: 196, d: 0.5, g: 0.22, at: 0.05 },
   ],
+  // Your name grows heavier: two rising ominous notes, minor-third apart.
+  tierUp: [
+    { wave: 'triangle', f0: 330, d: 0.14, g: 0.35 },
+    { wave: 'triangle', f0: 392, d: 0.3, g: 0.4, at: 0.13 },
+    { wave: 'sine', f0: 98, d: 0.4, g: 0.3, at: 0.13 },
+  ],
+  // One pluck of the deposit channel; played with rising pitchMul per quarter.
+  channelTick: [{ wave: 'triangle', f0: 523, d: 0.07, g: 0.22 }],
   matchEnd: [
     { wave: 'triangle', f0: 523, d: 0.16, g: 0.4 },
     { wave: 'triangle', f0: 659, d: 0.16, g: 0.4, at: 0.15 },
@@ -283,6 +300,7 @@ export function sfx(
   name: SfxName,
   at?: { x: number; y: number },
   listener?: { x: number; y: number },
+  pitchMul = 1,
 ): void {
   let volume = 1;
   let pan = 0;
@@ -301,5 +319,5 @@ export function sfx(
     return;
   }
   stats.played++;
-  play(SOUNDS[name], volume, pan);
+  play(SOUNDS[name], volume, pan, pitchMul);
 }

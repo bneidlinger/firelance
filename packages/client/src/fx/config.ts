@@ -51,6 +51,20 @@ export const FX = {
     /** Own-death desaturate pulse duration (CSS class on #app). */
     desatMs: 650,
   },
+  moments: {
+    /** Keep hp fraction under which it smokes (matches the red bar tier). */
+    keepCriticalFrac: 0.25,
+    /** Mean ms between smoke wisps off a critical keep. */
+    smokeEveryMs: 180,
+    /** Transient center-banner duration. */
+    bannerMs: 2200,
+    /** End-screen banked-gold count-up duration. */
+    countUpMs: 1200,
+    /** Own-keep alarm pointer lifetime after a keepHit. */
+    alarmPointerMs: 6000,
+    /** Deposit channel: pitch step per quarter of the channel. */
+    channelPitchStep: 0.13,
+  },
   movement: {
     /** Walk bob: radians of phase per world unit walked, and scale amplitude.
      *  Driven by DISTANCE, not time — it reads as gait, and a standing body
@@ -157,6 +171,28 @@ export const FX = {
       size: [1, 1.8],
       gravity: -2,
       drag: 2,
+    } as EmitSpec,
+    /** A critical keep smolders: slow grey wisps drifting up. */
+    smoke: {
+      count: 1,
+      colors: [0x6b6b64, 0x55554d, 0x8a8a80],
+      speed: [0.4, 1.1],
+      angle: [-2.2, -0.9], // upward cone (screen-up is -y)
+      life: [700, 1400],
+      size: [2, 3.6],
+      gravity: -1.2,
+      drag: 1.2,
+    } as EmitSpec,
+    /** Gold fountains out of a completed deposit. */
+    coinBurst: {
+      count: 12,
+      colors: [0xf2d68c, 0xffe9b0, 0xd5aa54],
+      speed: [2, 7],
+      angle: [Math.PI + 0.5, Math.PI * 2 - 0.5], // up-and-out arc
+      life: [300, 650],
+      size: [1.2, 2.4],
+      gravity: 16,
+      drag: 1.5,
     } as EmitSpec,
   },
 };
