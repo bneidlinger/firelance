@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Firelance — Character Pass (procedural soldiers)</title>
+<style>
+  :root {
+    --ink: #f4ead8;
+    --ink-dim: #b9ad98;
+    --bg: #14170f;
+    --panel: #1c2016;
+    --line: #3a4030;
+    --gold: #f2d68c;
+    --red: #f05a4d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink-dim);
+    font-family: Consolas, 'Cascadia Mono', monospace;
+    font-size: 14px;
+    line-height: 1.55;
+    padding: 28px 20px 80px;
+  }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 {
+    color: var(--ink);
+    font-size: 26px;
+    letter-spacing: 3px;
+    margin-bottom: 4px;
+  }
+  h1 .accent { color: var(--red); }
+  .sub { color: var(--ink-dim); margin-bottom: 28px; }
+  h2 {
+    color: var(--gold);
+    font-size: 15px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 40px 0 6px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 5px;
+  }
+  .note { margin: 8px 0 14px; max-width: 74ch; }
+  .note b { color: var(--ink); font-weight: 600; }
+  canvas {
+    display: block;
+    background: #2f3428;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    max-width: 100%;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  figure { margin: 10px 0; }
+  figcaption { color: var(--ink-dim); font-size: 12px; margin-top: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+  .chip {
+    display: flex; align-items: center; gap: 7px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 10px; font-size: 12px;
+  }
+  .chip i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    color: var(--ink);
+    margin: 10px 0;
+  }
+  ul { margin: 8px 0 8px 22px; }
+  li { margin: 3px 0; max-width: 72ch; }
+  .tag { color: var(--gold); }
+</style>
+</head>
+<body>
+<main>
+  <h1>FIRE<span class="accent">LANCE</span> — CHARACTER PASS</h1>
+  <p class="sub">Procedural top-down soldiers · source of truth:
+    <b>packages/client/src/render/entities.ts</b> — this page re-renders the same
+    geometry in canvas so the design is reviewable at zoom. The 1× strip at the
+    bottom is the honesty check.</p>
+
+  <h2>The three classes, walking (8×)</h2>
+  <p class="note">Squad color stays the whole torso — friend-or-foe at a glance
+    outranks costume (the concept board keeps team identity as color marks too).
+    Class is worn <b>on top</b>: steel helm + pauldrons + shield + sword;
+    forest hood + quiver + bow; leather cap + tool pack + crossbow.
+    The helmet leads the facing, boots step along the <b>move</b> direction
+    (distance-driven — a standing body holds still), and the weapon doubles as
+    the aim line.</p>
+  <figure><canvas id="hero" width="720" height="200"></canvas>
+  <figcaption>fighter · ranger · engineer — gait phase advances with distance, exactly as in-game</figcaption></figure>
+
+  <h2>Combat poses (fighter, 6×) + ranged reload read</h2>
+  <p class="note">The sword pulls back on <b>windup</b> (the dodgeable telegraph —
+    drawn inside the existing red wedge), crosses on the <b>strike</b>, tucks
+    behind the raised shield on <b>block</b> (the 120° arc stays the authoritative
+    cover telegraph). For your own archer, the nocked arrow / loaded bolt
+    vanishes with the shot and returns when the fire gate re-arms.</p>
+  <figure><canvas id="poses" width="900" height="150"></canvas>
+  <figcaption>idle · windup · strike · block — then: carry (swaying sack) · rooted · dash · ranger reloading (no arrow)</figcaption></figure>
+
+  <h2>Friend or foe: 4 squads × 3 classes (4×)</h2>
+  <p class="note">The read that must never regress. Gear tones are deliberately
+    too muted to fight a squad color; the ranger's hood green is darker and
+    grayer than squad-green.</p>
+  <figure><canvas id="squads" width="560" height="330"></canvas>
+  <figcaption>rows: red / blue / green / gold squads · cream ring = you · dark outline = bot</figcaption></figure>
+
+  <h2>True scale (1× and 2×) — before vs after</h2>
+  <p class="note">In game a body is <b>~10px across</b> (radius 0.4u × TILE 12).
+    Left of the divider: the old placeholder (disc + facing tick). Right: the
+    soldiers. Same hitbox, same disc — presence comes from shadow, helm, gear
+    and gait, not size.</p>
+  <figure><canvas id="scale" width="900" height="120"></canvas>
+  <figcaption>top row 1× (actual in-game size) · bottom row 2× · checkered field = in-game ground colors</figcaption></figure>
+
+  <h2>Armory palette</h2>
+  <div class="chips" id="palette"></div>
+  <p class="note">Pulled toward the concept board's tone strip: steel, oiled
+    leather, bow wood, boot black. Squad colors are untouched.</p>
+
+  <h2>What changed / what didn't</h2>
+  <ul>
+    <li><b>Render-only.</b> Zero sim / protocol / config-hash changes — facing (<span class="tag">ax/ay</span>), class and state bits were already in every snapshot.</li>
+    <li><b>Kept intact:</b> hp bars, name labels, damage flash, block arc, swing wedges, dash streak, banking beacon, root shackles, carry diamond (now sways with the gait), squad disc size = honest hitbox.</li>
+    <li><b>Removed:</b> the abstract class marks (inner ring / square) and the black facing tick — helm + weapon carry both jobs now.</li>
+    <li><b>New knobs</b> in <span class="tag">fx/config.ts → FX.character</span>: shadowAlpha, strideAmp, bootR.</li>
+    <li><b>New for your own archer:</b> <span class="tag">OwnVisual.atkReady</span> mirrors the local fire gate → visible re-nock on reload.</li>
+  </ul>
+
+  <h2>Verify &amp; ship (session was permission-blocked before this could run)</h2>
+  <pre>npm run typecheck &amp;&amp; npm test        # was green just before the last small edits
+# dev servers may still be running:  localhost:5173/?name=You&amp;class=fighter
+# in the console (new hooks, work even when the pane is occluded / rAF dead):
+__fl.charSheet('poses')   // fake sprites, all poses, laid out around you
+__fl.charSheet('squads')  // 4 squads × 3 classes
+__fl.charSheetClear()
+__fl.pump(1)              // hand-drive one frame + paint (occluded panes)
+__fl.shot(240,240,2)      // render + crop center → {len}; read via __fl.shotChunk(i)</pre>
+
+  <p class="note" style="margin-top:26px">Judge feel at <span class="tag">?fakelag=120&amp;jitter=30</span> in a
+    focused tab, per the house rule. If the silhouettes feel busy at speed, the
+    first knobs to pull: strideAmp down, shadowAlpha down, gear line-widths in
+    entities.ts.</p>
+</main>
+
+<script>
+'use strict';
+// ==== geometry mirror of packages/client/src/render/entities.ts ====
+const TILE = 12, R = 0.4 * TILE;
+const SQUAD = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
+const C = {
+  STEEL: '#8b939e', STEEL_DARK: '#565e66', STEEL_EDGE: '#4a5058',
+  STEEL_BRIGHT: '#d8e0e8', BLADE: '#b8c0c8', GUARD: '#7a6544',
+  LEATHER: '#8a6f4d', PACK: '#6b5233', PACK_EDGE: '#4a3a26', WOOD: '#7a5c3a',
+  FLETCH: '#d8d4c8', HOOD: '#46573a', COWL: '#232b1c', BOOT: '#241f19',
+  SHIELD_RAISED: '#9db4c9', SELF: '#f4ead8',
+};
+const MELEE_REACH = (1.8 + 0.4) * TILE;   // fighter kit, default config
+const MELEE_HALF = Math.acos(0.5);        // 120° arc
+
+function line(ctx, x0, y0, x1, y1, w, color, alpha) {
+  ctx.save();
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.restore();
+}
+function dot(ctx, x, y, r, color, alpha) {
+  ctx.save();
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function ring(ctx, x, y, r, w, color, alpha, a0, a1) {
+  ctx.save();
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.arc(x, y, r, a0 === undefined ? 0 : a0, a1 === undefined ? Math.PI * 2 : a1);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// opts: {squad, cls, pose, facing, moveAng, bobPhase, moving, self, bot,
+//        ready, carry, rooted, dashing, banking, old}
+function drawSoldier(ctx, cx, cy, S, o) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(S, S);
+  const r = R, color = SQUAD[o.squad] || '#fff';
+  const bob = 1 + Math.sin(o.bobPhase || 0) * 0.045;
+
+  // shadow (unrotated)
+  ctx.save(); ctx.globalAlpha = 0.3; ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(0, 1.2, r * 1.15, r * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+
+  // ---- state layer (unrotated) ----
+  ring(ctx, 0, 0, r - 0.8, 1.6, '#000', 0.22, Math.PI * 0.35, Math.PI * 1.15); // fixed sun shade
+  const a = o.facing || 0, ax = Math.cos(a), ay = Math.sin(a);
+  if (o.pose === 'block') ring(ctx, 0, 0, r + 3, 3.5, '#9db4c9', 1, a - Math.PI / 3, a + Math.PI / 3);
+  if (o.pose === 'windup' || o.pose === 'active') {
+    ctx.save();
+    ctx.globalAlpha = o.pose === 'windup' ? 0.14 : 0.4;
+    ctx.fillStyle = o.pose === 'windup' ? '#f05a4d' : '#ffe9b0';
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.arc(0, 0, MELEE_REACH, a - MELEE_HALF, a + MELEE_HALF);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  if (o.dashing) line(ctx, -ax * r * 2.4, -ay * r * 2.4, 0, 0, r, '#fff', 0.25);
+  if (o.carry) {
+    const sway = Math.sin(o.bobPhase || 0) * 1.2;
+    const bx = -ax * (r + 3) - ay * sway, by = -ay * (r + 3) + ax * sway;
+    ctx.save(); ctx.fillStyle = '#f2d68c'; ctx.strokeStyle = '#7a6544'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(bx, by - 4); ctx.lineTo(bx + 4, by);
+    ctx.lineTo(bx, by + 4); ctx.lineTo(bx - 4, by); ctx.closePath();
+    ctx.fill(); ctx.stroke(); ctx.restore();
+  }
+  if (o.banking) ring(ctx, 0, 0, r + 6, 2.5, '#f2d68c', 0.7);
+  if (o.rooted) {
+    for (let i = 0; i < 6; i++) {
+      const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 0.5) / 6) * Math.PI * 2, rr = r + 2;
+      line(ctx, rr * Math.cos(a0), rr * Math.sin(a0), rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1), 2, '#d8543e', 0.9);
+    }
+  }
+
+  // ---- feet (along move direction) ----
+  const m = o.moveAng === undefined ? a : o.moveAng;
+  const fxd = Math.cos(m), fyd = Math.sin(m);
+  const step = o.moving ? Math.sin(o.bobPhase || 0) * 2.2 : 0;
+  if (!o.old) {
+    dot(ctx, -fyd * r * 0.5 + fxd * step, fxd * r * 0.5 + fyd * step, 1.25, C.BOOT);
+    dot(ctx, fyd * r * 0.5 - fxd * step, -fxd * r * 0.5 - fyd * step, 1.25, C.BOOT);
+  }
+
+  // ---- rotated body + gear ----
+  ctx.save();
+  ctx.rotate(a);
+  ctx.scale(bob, bob);
+
+  if (o.old) {
+    // The pre-pass placeholder, for the comparison strip.
+    dot(ctx, 0, 0, r, SQUAD[o.squad]);
+    if (o.cls === 'fighter') ring(ctx, 0, 0, r - 1.5, 2.5, '#000', 0.35);
+    if (o.cls === 'engineer') { ctx.save(); ctx.globalAlpha = 0.4; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.strokeRect(-r * 0.45, -r * 0.45, r * 0.9, r * 0.9); ctx.restore(); }
+    line(ctx, 0, 0, r, 0, 2, '#14170f', 0.7); // facing tick
+    if (o.self) ring(ctx, 0, 0, r + 2.5, 2, C.SELF);
+    else if (o.bot) ring(ctx, 0, 0, r, 1, '#000', 0.45);
+    ctx.restore(); ctx.restore(); return;
+  }
+
+  // back-worn kit first
+  if (o.cls === 'engineer') {
+    ctx.save(); ctx.fillStyle = C.PACK; ctx.strokeStyle = C.PACK_EDGE; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2);
+    ctx.fill(); ctx.stroke(); ctx.restore();
+  } else if (o.cls === 'ranger') {
+    line(ctx, -r * 0.4, -r * 0.5, -r * 1.0, -r * 0.85, 2.6, C.PACK);
+    dot(ctx, -r * 1.0, -r * 0.85, 1.1, C.FLETCH);
+  }
+
+  dot(ctx, 0, 0, r, color); // THE squad disc
+
+  if (o.cls === 'fighter') {
+    dot(ctx, -r * 0.1, -r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, -r * 0.62, r * 0.27, 0.8, C.STEEL_EDGE);
+    dot(ctx, -r * 0.1, r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, r * 0.62, r * 0.27, 0.8, C.STEEL_EDGE);
+    dot(ctx, r * 0.18, 0, r * 0.55, C.STEEL);
+    line(ctx, r * 0.3, 0, r * 0.8, 0, 1.2, C.STEEL_DARK);
+    dot(ctx, r * 0.02, -r * 0.2, 0.8, C.STEEL_BRIGHT, 0.9);
+  } else if (o.cls === 'ranger') {
+    dot(ctx, -r * 0.14, 0, r * 0.42, C.HOOD);
+    dot(ctx, r * 0.15, 0, r * 0.55, C.HOOD);
+    dot(ctx, r * 0.42, 0, r * 0.24, C.COWL);
+    dot(ctx, 0, -r * 0.2, 0.7, '#8fa578', 0.7);
+  } else {
+    dot(ctx, r * 0.15, 0, r * 0.52, C.LEATHER);
+    dot(ctx, r * 0.02, -r * 0.17, 0.8, '#3a3f45'); ring(ctx, r * 0.02, -r * 0.17, 0.8, 0.5, C.STEEL);
+    dot(ctx, r * 0.02, r * 0.17, 0.8, '#3a3f45'); ring(ctx, r * 0.02, r * 0.17, 0.8, 0.5, C.STEEL);
+  }
+
+  if (o.self) ring(ctx, 0, 0, r + 2.5, 2, C.SELF);
+  else if (o.bot) ring(ctx, 0, 0, r, 1, '#000', 0.45);
+
+  // gear
+  const pose = o.pose || 'idle';
+  if (o.cls === 'fighter') {
+    if (pose === 'block') ring(ctx, 0, 0, r * 1.12, 3, C.SHIELD_RAISED, 1, -1.05, 1.05);
+    else ring(ctx, 0, 0, r * 0.9, 2, C.STEEL, 1, -1.42, -0.5);
+    const hx = r * 0.1, hy = r * 0.9;
+    const ang = pose === 'windup' ? 1.65 : pose === 'active' ? -0.45 : pose === 'block' ? 1.0 : 0.32;
+    const len = r * 1.65;
+    line(ctx, hx, hy, hx + Math.cos(ang) * len, hy + Math.sin(ang) * len, 1.6, C.BLADE);
+    const gx = hx + Math.cos(ang) * r * 0.4, gy = hy + Math.sin(ang) * r * 0.4;
+    const px = Math.cos(ang + Math.PI / 2) * 1.7, py = Math.sin(ang + Math.PI / 2) * 1.7;
+    line(ctx, gx + px, gy + py, gx - px, gy - py, 1.2, C.GUARD);
+  } else if (o.cls === 'ranger') {
+    ring(ctx, r * 0.35, 0, r * 0.85, 1.4, C.WOOD, 1, -1.1, 1.1);
+    const ex = r * 0.35 + Math.cos(1.1) * r * 0.85, ey = Math.sin(1.1) * r * 0.85;
+    line(ctx, ex, -ey, ex, ey, 0.7, C.FLETCH, 0.8);
+    if (o.ready !== false) {
+      line(ctx, -r * 0.15, 0, r * 1.5, 0, 1, C.FLETCH);
+      line(ctx, r * 1.5, 0, r * 1.15, -r * 0.18, 0.9, C.FLETCH);
+      line(ctx, r * 1.5, 0, r * 1.15, r * 0.18, 0.9, C.FLETCH);
+    }
+  } else {
+    line(ctx, r * 0.15, 0, r * 1.3, 0, 1.7, C.PACK);
+    line(ctx, r * 0.95, -r * 0.55, r * 0.95, r * 0.55, 1.3, C.STEEL);
+    if (o.ready !== false) dot(ctx, r * 1.42, 0, 0.9, C.FLETCH);
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+function ground(ctx, w, h, tile) {
+  for (let y = 0; y < h / tile; y++)
+    for (let x = 0; x < w / tile; x++) {
+      ctx.fillStyle = (x + y) % 2 === 0 ? '#2f3428' : '#333929';
+      ctx.fillRect(x * tile, y * tile, tile, tile);
+    }
+}
+function setup(id) {
+  const cv = document.getElementById(id);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.width, h = cv.height;
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+// ---- hero: the three classes walking in place (8×) ----
+(() => {
+  const { ctx, w, h } = setup('hero');
+  const cls = ['fighter', 'ranger', 'engineer'];
+  let phase = 0, last = performance.now();
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    phase += 5.1 * 2.6 * dt; // moveSpeed × bobPerUnit — the real gait rate
+    ground(ctx, w, h, TILE * 2);
+    cls.forEach((c, i) => {
+      drawSoldier(ctx, w * (0.5 + (i - 1) * 0.3), h * 0.52, 8,
+        { squad: 0, cls: c, pose: 'idle', facing: -0.25, moveAng: -0.25, bobPhase: phase, moving: true });
+    });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+
+// ---- poses (6×) ----
+(() => {
+  const { ctx, w, h } = setup('poses');
+  ground(ctx, w, h, TILE * 1.5);
+  const items = [
+    { cls: 'fighter', pose: 'idle' },
+    { cls: 'fighter', pose: 'windup' },
+    { cls: 'fighter', pose: 'active' },
+    { cls: 'fighter', pose: 'block' },
+    { cls: 'ranger', pose: 'idle', carry: true, bobPhase: 0.9, moving: true },
+    { cls: 'engineer', pose: 'idle', rooted: true },
+    { cls: 'ranger', pose: 'idle', dashing: true },
+    { cls: 'ranger', pose: 'idle', ready: false },
+  ];
+  items.forEach((it, i) => {
+    drawSoldier(ctx, (w / items.length) * (i + 0.5), h * 0.55, 6,
+      Object.assign({ squad: 1, facing: -0.35, moveAng: -0.35 }, it));
+  });
+})();
+
+// ---- squads grid (4×) ----
+(() => {
+  const { ctx, w, h } = setup('squads');
+  ground(ctx, w, h, TILE);
+  const cls = ['fighter', 'ranger', 'engineer'];
+  for (let squad = 0; squad < 4; squad++) {
+    cls.forEach((c, ci) => {
+      drawSoldier(ctx, w * (0.25 + ci * 0.25), h * (0.14 + squad * 0.24), 4,
+        { squad, cls: c, facing: -0.3, moveAng: -0.3, self: squad === 0 && ci === 0, bot: squad > 0 });
+    });
+  }
+})();
+
+// ---- true scale, before/after ----
+(() => {
+  const { ctx, w, h } = setup('scale');
+  ground(ctx, w, h, TILE);
+  const cls = ['fighter', 'ranger', 'engineer'];
+  // old (left) vs new (right), 1× top and 2× bottom
+  cls.forEach((c, i) => {
+    drawSoldier(ctx, 60 + i * 46, 30, 1, { squad: i, cls: c, facing: -0.3, old: true });
+    drawSoldier(ctx, 60 + i * 46, 78, 2, { squad: i, cls: c, facing: -0.3, old: true });
+  });
+  ctx.strokeStyle = '#3a4030'; ctx.beginPath(); ctx.moveTo(230, 10); ctx.lineTo(230, h - 10); ctx.stroke();
+  cls.forEach((c, i) => {
+    drawSoldier(ctx, 300 + i * 46, 30, 1, { squad: i, cls: c, facing: -0.3, moveAng: -0.3, bobPhase: 0.9, moving: true });
+    drawSoldier(ctx, 300 + i * 46, 78, 2, { squad: i, cls: c, facing: -0.3, moveAng: -0.3, bobPhase: 0.9, moving: true });
+  });
+  // a walking pair mid-fight for context, 2×
+  drawSoldier(ctx, 560, 54, 2, { squad: 0, cls: 'fighter', pose: 'windup', facing: 0.5 });
+  drawSoldier(ctx, 610, 76, 2, { squad: 1, cls: 'fighter', pose: 'block', facing: Math.PI + 0.5 });
+  drawSoldier(ctx, 700, 50, 2, { squad: 2, cls: 'ranger', facing: 2.6, carry: true, bobPhase: 2.1, moving: true, moveAng: 2.6 });
+  drawSoldier(ctx, 780, 70, 2, { squad: 3, cls: 'engineer', facing: -2.6, rooted: true });
+})();
+
+// ---- palette chips ----
+(() => {
+  const el = document.getElementById('palette');
+  const items = [
+    ['steel', C.STEEL], ['steel edge', C.STEEL_EDGE], ['blade', C.BLADE],
+    ['raised shield', C.SHIELD_RAISED], ['leather', C.LEATHER], ['pack', C.PACK],
+    ['bow wood', C.WOOD], ['fletching', C.FLETCH], ['hood', C.HOOD],
+    ['cowl shadow', C.COWL], ['boot', C.BOOT],
+  ];
+  el.innerHTML = items.map(([n, c]) =>
+    `<span class="chip"><i style="background:${c}"></i>${n} ${c}</span>`).join('');
+})();
+</script>
+</body>
+</html>

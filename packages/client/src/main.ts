@@ -4,6 +4,7 @@ import { getMap } from '@shared/map/maps';
 import type { MapData } from '@shared/map/types';
 import { applyVariant } from '@shared/map/variant';
 import type { KeepSnap, NetEvent, RosterEntry, ServerMsg, YouSnap } from '@shared/net/messages';
+import type { RichEnt } from './net/interpolation';
 import {
   ST_ACTIVE,
   ST_BANKING,
@@ -756,8 +757,13 @@ function startLoop(): void {
   requestAnimationFrame(frame);
 }
 
+/** True while __fl.pump drives frames by hand — frame() must not re-queue
+ *  rAF then, or every pumped call would spawn a permanent extra loop the
+ *  moment the pane becomes visible again. */
+let pumping = false;
+
 function frame(now: number): void {
-  requestAnimationFrame(frame);
+  if (!pumping) requestAnimationFrame(frame);
   if (!game || !scene || disconnected) return;
   const dtMs = Math.min(100, now - lastFrame);
   lastFrame = now;
@@ -818,6 +824,9 @@ function frame(now: number): void {
       cls,
       st,
       g: latestYou?.carried,
+      // The fire-gate mirror doubles as a reload read: the nocked arrow /
+      // loaded bolt disappears with the shot and returns when it re-arms.
+      atkReady: game.predictedAtkCd <= 0,
     };
   }
 
@@ -1238,8 +1247,115 @@ declare global {
       visibleIds(): number[];
       phase(): number;
       stats(): Record<string, unknown>;
+      pump(n?: number): boolean;
+      shot(w?: number, h?: number, scale?: number): { len: number; w: number; h: number } | null;
+      shotChunk(i: number, size?: number): string | null;
+      charSheet(mode?: 'squads' | 'poses'): boolean;
+      charSheetClear(): void;
     };
   }
+}
+
+// ---- graphics-session hooks: the Browser pane can sit occluded on the
+// desktop (document.hidden=true) with rAF permanently dead — frame loops
+// pause while the sim keeps running. These drive frames BY HAND and pull
+// zoomed crops out through the eval channel, so character art is verifiable
+// without a visible window. (Pixi's own ticker is rAF-driven too, hence the
+// explicit renderer.render.)
+let lastShot = '';
+let sheet: EntityLayer | null = null;
+
+function flPump(n = 1): boolean {
+  if (!game || !scene) return false;
+  pumping = true;
+  try {
+    for (let i = 0; i < n; i++) frame(performance.now());
+  } finally {
+    pumping = false;
+  }
+  scene.app.renderer.render(scene.app.stage);
+  return true;
+}
+
+function flShot(w = 240, h = 240, scale = 2): { len: number; w: number; h: number } | null {
+  if (!scene) return null;
+  const src = scene.app.canvas as HTMLCanvasElement;
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  // Paint, then grab synchronously — the WebGL buffer is only guaranteed
+  // until the next compositor swap.
+  flPump(1);
+  ctx.drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, c.width, c.height);
+  lastShot = c.toDataURL('image/png');
+  return { len: lastShot.length, w: c.width, h: c.height };
+}
+
+/** A character sheet rendered IN the live scene around the player: fake
+ *  sprites through the real EntityLayer, so what the sheet shows is exactly
+ *  what the game draws. 'squads' = 4 squads × 3 classes idle; 'poses' = own
+ *  squad's classes × combat/state poses (walk col has real gait phase). */
+function flCharSheet(mode: 'squads' | 'poses' = 'poses'): boolean {
+  if (!game || !scene) return false;
+  const own = window.__fl.selfPos();
+  if (!own) return false;
+  sheet?.clear();
+  sheet = new EntityLayer(scene.entityLayer, game.cfg);
+  const classes: Array<'fighter' | 'ranger' | 'engineer'> = ['fighter', 'ranger', 'engineer'];
+  const fakeRoster = new Map<number, RosterEntry>();
+  const ents = new Map<number, RichEnt>();
+  const walkers: number[] = [];
+  let id = 90001;
+  const add = (x: number, y: number, cls: RichEnt['cls'], st: number, squad: number, name = '') => {
+    fakeRoster.set(id, { id, squad, name, bot: false });
+    ents.set(id, { x, y, ax: 1, ay: 0, hp: getKit(game!.cfg, cls).maxHp, cls, st });
+    return id++;
+  };
+  if (mode === 'squads') {
+    for (let squad = 0; squad < 4; squad++) {
+      classes.forEach((cls, ci) => {
+        add(own.x + (ci - 1) * 2.2, own.y + (squad - 1.5) * 1.9, cls, 0, squad);
+      });
+    }
+  } else {
+    const poses: Array<{ name: string; st: number; walk?: boolean }> = [
+      { name: 'idle', st: 0 },
+      { name: 'walk', st: 0, walk: true },
+      { name: 'windup', st: ST_WINDUP },
+      { name: 'strike', st: ST_ACTIVE },
+      { name: 'block', st: ST_BLOCKING },
+      { name: 'carry', st: ST_CARRYING },
+      { name: 'rooted', st: ST_ROOTED },
+      { name: 'dash', st: ST_DASHING },
+    ];
+    classes.forEach((cls, ci) => {
+      poses.forEach((p, pi) => {
+        const eid = add(
+          own.x + (pi - (poses.length - 1) / 2) * 1.8,
+          own.y + (ci - 1) * 2.1,
+          cls,
+          p.st,
+          game!.ownSquad,
+          ci === 0 ? p.name : '',
+        );
+        if (p.walk) walkers.push(eid);
+      });
+    });
+  }
+  sheet.sync(ents, fakeRoster, -1, null);
+  // Give the walk column a real mid-stride gait phase: nudge them forward a
+  // few times so bobPhase accumulates exactly the way live movement does.
+  for (let stepI = 0; stepI < 3; stepI++) {
+    for (const wid of walkers) {
+      const e = ents.get(wid)!;
+      ents.set(wid, { ...e, x: e.x + 0.11 });
+    }
+    sheet.sync(ents, fakeRoster, -1, null);
+  }
+  scene.app.renderer.render(scene.app.stage);
+  return true;
 }
 
 window.__fl = {
@@ -1265,6 +1381,14 @@ window.__fl = {
     ...interp.sample(conn.estServerTick(performance.now()) - INTERP_DELAY_TICKS).keys(),
   ],
   phase: () => game?.phase ?? -1,
+  pump: flPump,
+  shot: flShot,
+  shotChunk: (i: number, size = 24000) => (lastShot ? lastShot.slice(i * size, (i + 1) * size) : null),
+  charSheet: flCharSheet,
+  charSheetClear: () => {
+    sheet?.clear();
+    sheet = null;
+  },
   stats: () => ({
     rttMs: conn.rttMs,
     estTick: conn.estServerTick(performance.now()),

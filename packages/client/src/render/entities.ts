@@ -15,16 +15,49 @@ import { FX } from '../fx/config';
 import type { RichEnt } from '../net/interpolation';
 import { SQUAD_COLORS, TILE } from './scene';
 
-// Placeholder-art entity rendering, combat edition: squad-colored circles with
-// facing, hp bars, shield/windup/swing/dash state visuals, and damage flashes.
-// Readability first; the concept art's look is a post-fun-proof concern.
+// Procedural top-down soldiers (character pass). The squad-colored disc STAYS
+// the dominant read — friend-or-foe at a glance outranks costume — and the
+// class is worn on top of it: steel helm/pauldrons/shield/sword for the
+// fighter, hood/quiver/bow for the ranger, cap/pack/crossbow for the engineer.
+// The body rotates to facing (the helmet leads, the weapon is the aim line);
+// boots step with the distance-driven gait phase along the MOVE direction, so
+// strafing reads as strafing. Still Pixi primitives only — no asset files.
+
+// The armory palette, pulled from the concept board's tone strip: muted steel,
+// oiled leather, bow wood — nothing saturated enough to fight a squad color.
+const STEEL = 0x8b939e;
+const STEEL_DARK = 0x565e66;
+const STEEL_EDGE = 0x4a5058;
+const STEEL_BRIGHT = 0xd8e0e8;
+const BLADE = 0xb8c0c8;
+const GUARD = 0x7a6544;
+const LEATHER = 0x8a6f4d;
+const PACK = 0x6b5233;
+const PACK_EDGE = 0x4a3a26;
+const WOOD = 0x7a5c3a;
+const FLETCH = 0xd8d4c8;
+const HOOD = 0x46573a;
+const COWL_SHADOW = 0x232b1c;
+const BOOT = 0x241f19;
+const SHIELD_RAISED = 0x9db4c9;
+
+type Pose = 'idle' | 'windup' | 'active' | 'block';
 
 interface Sprite {
   root: Container;
+  shadow: Graphics;
+  /** Boots, drawn in root space along the movement direction (not facing). */
+  feet: Graphics;
+  /** Rotates to facing and carries the gait bob; body + gear live inside. */
+  bodyWrap: Container;
   body: Graphics;
+  /** Weapon layer: redrawn only when the pose bucket changes. */
+  gear: Graphics;
   state: Graphics; // per-frame redraw: shield arc, swing wedge, dash streak
   hpFill: Graphics;
   label: Text;
+  bodyKey: string; // cls|self|bot — body redraws only when this changes
+  poseKey: string; // cls|pose|ready — gear redraws only when this changes
   cls: ClassId | null;
   flashUntil: number;
   baseColor: number;
@@ -33,6 +66,10 @@ interface Sprite {
   lastX: number;
   lastY: number;
   bobPhase: number;
+  /** Last walking direction — the boots keep pointing there at rest. */
+  moveAng: number;
+  /** Was stepping last frame (lets idle frames skip the feet redraw). */
+  stepping: boolean;
 }
 
 export interface OwnVisual {
@@ -44,6 +81,9 @@ export interface OwnVisual {
   cls: ClassId;
   st: number;
   g?: number;
+  /** Local fire-gate mirror: false while the bow/crossbow is rearming, so the
+   *  nocked arrow visibly returns when the next shot is live. */
+  atkReady?: boolean;
 }
 
 const HP_W = 26;
@@ -71,11 +111,26 @@ export class EntityLayer {
     let s = this.sprites.get(id);
     if (s) return s;
     const color = SQUAD_COLORS[entry?.squad ?? 0] ?? 0xffffff;
+    const r = this.cfg.player.radius * TILE;
     const root = new Container();
+
+    // Bottom-up: shadow grounds the body, state visuals radiate from under it,
+    // boots slide under the disc, then the rotating body itself.
+    const shadow = new Graphics();
+    shadow
+      .ellipse(0, 1.2, r * 1.15, r * 0.8)
+      .fill({ color: 0x000000, alpha: FX.character.shadowAlpha });
+    root.addChild(shadow);
     const state = new Graphics();
     root.addChild(state);
+    const feet = new Graphics();
+    root.addChild(feet);
+    const bodyWrap = new Container();
     const body = new Graphics();
-    root.addChild(body);
+    const gear = new Graphics();
+    bodyWrap.addChild(body);
+    bodyWrap.addChild(gear);
+    root.addChild(bodyWrap);
 
     const hpBg = new Graphics();
     hpBg.rect(-HP_W / 2, 0, HP_W, 3.5).fill({ color: 0x000000, alpha: 0.55 });
@@ -101,16 +156,24 @@ export class EntityLayer {
     this.container.addChild(root);
     s = {
       root,
+      shadow,
+      feet,
+      bodyWrap,
       body,
+      gear,
       state,
       hpFill,
       label,
+      bodyKey: '',
+      poseKey: '',
       cls: null,
       flashUntil: 0,
       baseColor: color,
       lastX: NaN,
       lastY: NaN,
       bobPhase: 0,
+      moveAng: 0,
+      stepping: true, // force the first feet draw
     };
     this.sprites.set(id, s);
     return s;
@@ -118,36 +181,99 @@ export class EntityLayer {
 
   /** Advance the gait phase by distance moved and squash the body a touch.
    *  Teleports (respawn, first sight) don't spin the phase. */
-  private bob(s: Sprite, px: number, py: number): void {
-    const moved = Math.hypot(px - s.lastX, py - s.lastY);
+  private bob(s: Sprite, px: number, py: number): boolean {
+    const dx = px - s.lastX;
+    const dy = py - s.lastY;
+    const moved = Math.hypot(dx, dy);
+    let moving = false;
     if (moved > 0.01 && moved < TILE * 2) {
       s.bobPhase += (moved / TILE) * FX.movement.bobPerUnit;
-      s.body.scale.set(1 + Math.sin(s.bobPhase) * FX.movement.bobAmp);
+      s.bodyWrap.scale.set(1 + Math.sin(s.bobPhase) * FX.movement.bobAmp);
+      s.moveAng = Math.atan2(dy, dx);
+      moving = true;
     } else if (!(moved > 0.01)) {
-      s.body.scale.set(1);
+      s.bodyWrap.scale.set(1);
     }
     s.lastX = px;
     s.lastY = py;
+    return moving;
   }
 
-  /** Redraw the body when class changes (fighters read heavier than rangers). */
+  /** Two boots under the disc: they slide fore/aft along the MOVE direction
+   *  on the gait phase, and tuck to a neutral stance at rest. */
+  private drawFeet(s: Sprite, moving: boolean): void {
+    if (!moving && !s.stepping) return; // still standing — boots already drawn
+    s.stepping = moving;
+    const g = s.feet;
+    g.clear();
+    const r = this.cfg.player.radius * TILE;
+    const fx = Math.cos(s.moveAng);
+    const fy = Math.sin(s.moveAng);
+    const step = moving ? Math.sin(s.bobPhase) * FX.character.strideAmp : 0;
+    // Perpendicular stance width; opposite feet swing opposite directions.
+    g.circle(-fy * r * 0.5 + fx * step, fx * r * 0.5 + fy * step, FX.character.bootR).fill(BOOT);
+    g.circle(fy * r * 0.5 - fx * step, -fx * r * 0.5 - fy * step, FX.character.bootR).fill(BOOT);
+  }
+
+  /** Redraw the body when class/self/bot changes. Local frame: +X is forward.
+   *  Worn kit (pack, quiver, helm) rotates with the body; that's correct —
+   *  it's ON them. World lighting (the torso shade) lives in drawState. */
   private drawBody(s: Sprite, cls: ClassId, isSelf: boolean, bot: boolean): void {
-    if (s.cls === cls) return;
+    const key = `${cls}|${isSelf ? 1 : 0}|${bot ? 1 : 0}`;
+    if (s.bodyKey === key) return;
+    s.bodyKey = key;
     s.cls = cls;
     const g = s.body;
     g.clear();
     const r = this.cfg.player.radius * TILE;
-    g.circle(0, 0, r).fill(s.baseColor);
-    if (cls === 'fighter') {
-      g.circle(0, 0, r - 1.5).stroke({ width: 2.5, color: 0x00000, alpha: 0.35 });
-    } else if (cls === 'engineer') {
-      // The builder's mark: a square frame inside the circle.
-      g.rect(-r * 0.45, -r * 0.45, r * 0.9, r * 0.9).stroke({
-        width: 1.5,
-        color: 0x000000,
-        alpha: 0.4,
+
+    // Back-worn kit first, so the torso overlaps its front edge.
+    if (cls === 'engineer') {
+      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2).fill(PACK);
+      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2).stroke({
+        width: 1,
+        color: PACK_EDGE,
       });
+    } else if (cls === 'ranger') {
+      // Quiver over the shoulder-blade, pale fletchings at its mouth.
+      g.moveTo(-r * 0.4, -r * 0.5)
+        .lineTo(-r * 1.0, -r * 0.85)
+        .stroke({ width: 2.6, color: PACK });
+      g.circle(-r * 1.0, -r * 0.85, 1.1).fill(FLETCH);
     }
+
+    // Torso: THE squad-color disc, unchanged size — an honest hitbox.
+    g.circle(0, 0, r).fill(s.baseColor);
+
+    if (cls === 'fighter') {
+      // Pauldrons across both shoulders — tucked inside the rim so the squad
+      // color stays a continuous ring; friend-or-foe outranks costume.
+      g.circle(-r * 0.1, -r * 0.62, r * 0.27).fill(STEEL);
+      g.circle(-r * 0.1, r * 0.62, r * 0.27).fill(STEEL);
+      g.circle(-r * 0.1, -r * 0.62, r * 0.27).stroke({ width: 0.8, color: STEEL_EDGE });
+      g.circle(-r * 0.1, r * 0.62, r * 0.27).stroke({ width: 0.8, color: STEEL_EDGE });
+      // Steel helm, nose-guard forward: the aim IS the face.
+      g.circle(r * 0.18, 0, r * 0.55).fill(STEEL);
+      g.moveTo(r * 0.3, 0)
+        .lineTo(r * 0.8, 0)
+        .stroke({ width: 1.2, color: STEEL_DARK });
+      g.circle(r * 0.02, -r * 0.2, 0.8).fill({ color: STEEL_BRIGHT, alpha: 0.9 });
+    } else if (cls === 'ranger') {
+      // Hood: a teardrop — the point trails behind the head.
+      g.circle(-r * 0.14, 0, r * 0.42).fill(HOOD);
+      g.circle(r * 0.15, 0, r * 0.55).fill(HOOD);
+      // The face is a shadow inside the cowl.
+      g.circle(r * 0.42, 0, r * 0.24).fill(COWL_SHADOW);
+      g.circle(r * 0.0, -r * 0.2, 0.7).fill({ color: 0x8fa578, alpha: 0.7 });
+    } else {
+      // Leather cap, goggles resting up on the brim.
+      g.circle(r * 0.15, 0, r * 0.52).fill(LEATHER);
+      g.circle(r * 0.02, -r * 0.17, 0.8).fill(0x3a3f45);
+      g.circle(r * 0.02, r * 0.17, 0.8).fill(0x3a3f45);
+      g.circle(r * 0.02, -r * 0.17, 0.8).stroke({ width: 0.5, color: STEEL });
+      g.circle(r * 0.02, r * 0.17, 0.8).stroke({ width: 0.5, color: STEEL });
+    }
+
     if (isSelf) {
       g.circle(0, 0, r + 2.5).stroke({ width: 2, color: 0xf4ead8 });
     } else if (bot) {
@@ -155,17 +281,97 @@ export class EntityLayer {
     }
   }
 
-  /** Per-frame state visuals: facing tick, shield arc, swing wedge, dash streak. */
+  /** The weapon layer, in the rotated body frame. Redrawn per pose bucket:
+   *  the fighter's sword pulls back on windup and crosses on the strike; the
+   *  ranger's nocked arrow (and the engineer's loaded bolt) is the aim line
+   *  and visibly returns when the fire gate re-arms. */
+  private drawGear(s: Sprite, cls: ClassId, pose: Pose, ready: boolean): void {
+    const key = `${cls}|${pose}|${ready ? 1 : 0}`;
+    if (s.poseKey === key) return;
+    s.poseKey = key;
+    const g = s.gear;
+    g.clear();
+    const r = this.cfg.player.radius * TILE;
+
+    if (cls === 'fighter') {
+      // Shield on the left arm; braced across the front while blocking. (The
+      // 120° state arc stays the authoritative cover telegraph — this is the
+      // physical shield inside it.)
+      if (pose === 'block') {
+        g.arc(0, 0, r * 1.12, -1.05, 1.05).stroke({ width: 3, color: SHIELD_RAISED });
+      } else {
+        // Slung on the arm, inside the rim — the squad ring stays unbroken.
+        g.arc(0, 0, r * 0.9, -1.42, -0.5).stroke({ width: 2, color: STEEL });
+      }
+      // Sword in the right hand.
+      const hx = r * 0.1;
+      const hy = r * 0.9;
+      const ang = pose === 'windup' ? 1.65 : pose === 'active' ? -0.45 : pose === 'block' ? 1.0 : 0.32;
+      const len = r * 1.65;
+      g.moveTo(hx, hy)
+        .lineTo(hx + Math.cos(ang) * len, hy + Math.sin(ang) * len)
+        .stroke({ width: 1.6, color: BLADE });
+      const gx = hx + Math.cos(ang) * r * 0.4;
+      const gy = hy + Math.sin(ang) * r * 0.4;
+      const px = Math.cos(ang + Math.PI / 2) * 1.7;
+      const py = Math.sin(ang + Math.PI / 2) * 1.7;
+      g.moveTo(gx + px, gy + py)
+        .lineTo(gx - px, gy - py)
+        .stroke({ width: 1.2, color: GUARD });
+    } else if (cls === 'ranger') {
+      // Bow bulging forward, string as the chord behind it.
+      g.arc(r * 0.35, 0, r * 0.85, -1.1, 1.1).stroke({ width: 1.4, color: WOOD });
+      const ex = r * 0.35 + Math.cos(1.1) * r * 0.85;
+      const ey = Math.sin(1.1) * r * 0.85;
+      g.moveTo(ex, -ey)
+        .lineTo(ex, ey)
+        .stroke({ width: 0.7, color: FLETCH, alpha: 0.8 });
+      if (ready) {
+        g.moveTo(-r * 0.15, 0)
+          .lineTo(r * 1.5, 0)
+          .stroke({ width: 1, color: FLETCH });
+        g.moveTo(r * 1.5, 0)
+          .lineTo(r * 1.15, -r * 0.18)
+          .moveTo(r * 1.5, 0)
+          .lineTo(r * 1.15, r * 0.18)
+          .stroke({ width: 0.9, color: FLETCH });
+      }
+    } else {
+      // Crossbow: stock + steel crossarm, bolt tip winking when loaded.
+      g.moveTo(r * 0.15, 0)
+        .lineTo(r * 1.3, 0)
+        .stroke({ width: 1.7, color: PACK });
+      g.moveTo(r * 0.95, -r * 0.55)
+        .lineTo(r * 0.95, r * 0.55)
+        .stroke({ width: 1.3, color: STEEL });
+      if (ready) g.circle(r * 1.42, 0, 0.9).fill(FLETCH);
+    }
+  }
+
+  /** Melee pose from the state bits; only the fighter carries a sword. */
+  private pose(st: number, cls: ClassId): Pose {
+    if (cls !== 'fighter') return 'idle';
+    if (st & ST_ACTIVE) return 'active';
+    if (st & ST_WINDUP) return 'windup';
+    if (st & ST_BLOCKING) return 'block';
+    return 'idle';
+  }
+
+  /** Per-frame state visuals: shield arc, swing wedge, dash streak. Facing
+   *  itself is carried by the rotated body (helmet + weapon) now. */
   private drawState(s: Sprite, e: { ax: number; ay: number; st: number; cls: ClassId }): void {
     const g = s.state;
     g.clear();
     const r = this.cfg.player.radius * TILE;
     const angle = Math.atan2(e.ay, e.ax);
 
-    // Facing tick (always).
-    g.moveTo(0, 0)
-      .lineTo(e.ax * r, e.ay * r)
-      .stroke({ width: 2, color: 0x14170f, alpha: 0.7 });
+    // World lighting: one fixed-angle shade along the lower-left rim. Drawn
+    // here (unrotated space) so the sun doesn't spin with the body.
+    g.arc(0, 0, r - 0.8, Math.PI * 0.35, Math.PI * 1.15).stroke({
+      width: 1.6,
+      color: 0x000000,
+      alpha: 0.22,
+    });
 
     if (e.st & ST_BLOCKING) {
       // Shield arc across the protected 120° frontal sector.
@@ -198,10 +404,12 @@ export class EntityLayer {
         .stroke({ width: r, color: 0xffffff, alpha: 0.25 });
     }
     if (e.st & ST_CARRYING) {
-      // The sack on their back: a gold diamond trailing opposite the facing.
-      // Everyone can SEE a carrier — only the amount is squad-private.
-      const bx = -e.ax * (r + 3);
-      const by = -e.ay * (r + 3);
+      // The sack on their back: a gold diamond trailing opposite the facing,
+      // swaying a touch with the gait. Everyone can SEE a carrier — only the
+      // amount is squad-private.
+      const sway = Math.sin(s.bobPhase) * 1.2;
+      const bx = -e.ax * (r + 3) - e.ay * sway;
+      const by = -e.ay * (r + 3) + e.ax * sway;
       g.moveTo(bx, by - 4)
         .lineTo(bx + 4, by)
         .lineTo(bx, by + 4)
@@ -237,6 +445,23 @@ export class EntityLayer {
     s.hpFill.rect(0, 0, HP_W * frac, 3.5).fill(color);
   }
 
+  /** Everything a sprite does each frame, self and remote alike. */
+  private present(
+    s: Sprite,
+    e: { x: number; y: number; ax: number; ay: number; st: number; cls: ClassId },
+    ready: boolean,
+    now: number,
+  ): void {
+    this.drawGear(s, e.cls, this.pose(e.st, e.cls), ready);
+    this.drawState(s, e);
+    s.bodyWrap.rotation = Math.atan2(e.ay, e.ax);
+    // Damage flash: brief warm tint on the whole sprite.
+    s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
+    s.root.position.set(e.x * TILE, e.y * TILE);
+    const moving = this.bob(s, e.x * TILE, e.y * TILE);
+    this.drawFeet(s, moving);
+  }
+
   /** Upsert every visible entity, drop everything no longer visible. */
   sync(
     visible: Map<number, RichEnt>,
@@ -252,27 +477,21 @@ export class EntityLayer {
       const entry = roster.get(id);
       const s = this.ensure(id, entry, false);
       this.drawBody(s, e.cls, false, entry?.bot ?? false);
-      this.drawState(s, e);
       this.drawHp(s, e.hp, e.cls);
       // Squadmates broadcast their load next to their name (escort intel).
       const base = entry?.name ?? `#${id}`;
       const want = e.g !== undefined && e.g > 0 ? `${base} ◆${e.g}` : base;
       if (s.label.text !== want) s.label.text = want;
-      // Damage flash: brief warm tint on the whole sprite.
-      s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
-      s.root.position.set(e.x * TILE, e.y * TILE);
-      this.bob(s, e.x * TILE, e.y * TILE);
+      // Remote fire gates aren't known — their arrow stays nocked.
+      this.present(s, e, true, now);
     }
     if (own) {
       seen.add(ownId);
       const entry = roster.get(ownId);
       const s = this.ensure(ownId, entry, true);
       this.drawBody(s, own.cls, true, false);
-      this.drawState(s, own);
       this.drawHp(s, own.hp, own.cls);
-      s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
-      s.root.position.set(own.x * TILE, own.y * TILE);
-      this.bob(s, own.x * TILE, own.y * TILE);
+      this.present(s, own, own.atkReady ?? true, now);
     }
     for (const [id, s] of this.sprites) {
       if (!seen.has(id)) {

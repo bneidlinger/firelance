@@ -86,6 +86,13 @@ export const FX = {
     /** Mean ms between gold glints on a carrier. */
     glintEveryMs: 320,
   },
+  character: {
+    /** Ground shadow under every body. */
+    shadowAlpha: 0.3,
+    /** Boot swing reach (px) at full stride, and boot dot radius. */
+    strideAmp: 2.2,
+    bootR: 1.25,
+  },
   emit: {
     /** Arrow dies in terrain: pale splinters, quick and dry. */
     arrowThud: {
