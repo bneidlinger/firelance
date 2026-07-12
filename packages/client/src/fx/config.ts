@@ -89,9 +89,19 @@ export const FX = {
   character: {
     /** Ground shadow under every body. */
     shadowAlpha: 0.3,
-    /** Boot swing reach (px) at full stride, and boot dot radius. */
-    strideAmp: 2.2,
-    bootR: 1.25,
+    /** Boot swing reach at full stride, and boot dot radius — × body radius,
+     *  so the gait survives any camera zoom. */
+    strideAmp: 0.46,
+    bootR: 0.3,
+    /** Dark contour around the torso disc: pops the silhouette off the ground
+     *  (the modern-flat read). Width × body radius. */
+    outlineW: 0.2,
+    outlineColor: 0x12160e,
+    outlineAlpha: 0.9,
+    /** Fixed-sun volume on the disc: lower-right shade crescent and a small
+     *  upper-left rim light. Alpha only — squad hue stays the whole torso. */
+    shadeAlpha: 0.14,
+    glintAlpha: 0.12,
   },
   emit: {
     /** Arrow dies in terrain: pale splinters, quick and dry. */

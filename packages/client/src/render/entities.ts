@@ -118,7 +118,7 @@ export class EntityLayer {
     // boots slide under the disc, then the rotating body itself.
     const shadow = new Graphics();
     shadow
-      .ellipse(0, 1.2, r * 1.15, r * 0.8)
+      .ellipse(0, r * 0.2, r * 1.15, r * 0.8)
       .fill({ color: 0x000000, alpha: FX.character.shadowAlpha });
     root.addChild(shadow);
     const state = new Graphics();
@@ -209,10 +209,10 @@ export class EntityLayer {
     const r = this.cfg.player.radius * TILE;
     const fx = Math.cos(s.moveAng);
     const fy = Math.sin(s.moveAng);
-    const step = moving ? Math.sin(s.bobPhase) * FX.character.strideAmp : 0;
+    const step = moving ? Math.sin(s.bobPhase) * FX.character.strideAmp * r : 0;
     // Perpendicular stance width; opposite feet swing opposite directions.
-    g.circle(-fy * r * 0.5 + fx * step, fx * r * 0.5 + fy * step, FX.character.bootR).fill(BOOT);
-    g.circle(fy * r * 0.5 - fx * step, -fx * r * 0.5 - fy * step, FX.character.bootR).fill(BOOT);
+    g.circle(-fy * r * 0.5 + fx * step, fx * r * 0.5 + fy * step, FX.character.bootR * r).fill(BOOT);
+    g.circle(fy * r * 0.5 - fx * step, -fx * r * 0.5 - fy * step, FX.character.bootR * r).fill(BOOT);
   }
 
   /** Redraw the body when class/self/bot changes. Local frame: +X is forward.
@@ -229,55 +229,59 @@ export class EntityLayer {
 
     // Back-worn kit first, so the torso overlaps its front edge.
     if (cls === 'engineer') {
-      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2).fill(PACK);
-      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2).stroke({
-        width: 1,
+      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, r * 0.2).fill(PACK);
+      g.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, r * 0.2).stroke({
+        width: r * 0.17,
         color: PACK_EDGE,
       });
     } else if (cls === 'ranger') {
       // Quiver over the shoulder-blade, pale fletchings at its mouth.
       g.moveTo(-r * 0.4, -r * 0.5)
         .lineTo(-r * 1.0, -r * 0.85)
-        .stroke({ width: 2.6, color: PACK });
-      g.circle(-r * 1.0, -r * 0.85, 1.1).fill(FLETCH);
+        .stroke({ width: r * 0.44, color: PACK });
+      g.circle(-r * 1.0, -r * 0.85, r * 0.18).fill(FLETCH);
     }
 
-    // Torso: THE squad-color disc, unchanged size — an honest hitbox.
+    // Torso: THE squad-color disc, unchanged size — an honest hitbox. The dark
+    // contour pops the silhouette off the ground; kit worn over it.
     g.circle(0, 0, r).fill(s.baseColor);
+    g.circle(0, 0, r).stroke({
+      width: FX.character.outlineW * r,
+      color: FX.character.outlineColor,
+      alpha: FX.character.outlineAlpha,
+    });
 
     if (cls === 'fighter') {
       // Pauldrons across both shoulders — tucked inside the rim so the squad
       // color stays a continuous ring; friend-or-foe outranks costume.
       g.circle(-r * 0.1, -r * 0.62, r * 0.27).fill(STEEL);
       g.circle(-r * 0.1, r * 0.62, r * 0.27).fill(STEEL);
-      g.circle(-r * 0.1, -r * 0.62, r * 0.27).stroke({ width: 0.8, color: STEEL_EDGE });
-      g.circle(-r * 0.1, r * 0.62, r * 0.27).stroke({ width: 0.8, color: STEEL_EDGE });
+      g.circle(-r * 0.1, -r * 0.62, r * 0.27).stroke({ width: r * 0.14, color: STEEL_EDGE });
+      g.circle(-r * 0.1, r * 0.62, r * 0.27).stroke({ width: r * 0.14, color: STEEL_EDGE });
       // Steel helm, nose-guard forward: the aim IS the face.
       g.circle(r * 0.18, 0, r * 0.55).fill(STEEL);
       g.moveTo(r * 0.3, 0)
         .lineTo(r * 0.8, 0)
-        .stroke({ width: 1.2, color: STEEL_DARK });
-      g.circle(r * 0.02, -r * 0.2, 0.8).fill({ color: STEEL_BRIGHT, alpha: 0.9 });
+        .stroke({ width: r * 0.2, color: STEEL_DARK });
+      g.circle(r * 0.02, -r * 0.2, r * 0.14).fill({ color: STEEL_BRIGHT, alpha: 0.9 });
     } else if (cls === 'ranger') {
       // Hood: a teardrop — the point trails behind the head.
       g.circle(-r * 0.14, 0, r * 0.42).fill(HOOD);
       g.circle(r * 0.15, 0, r * 0.55).fill(HOOD);
       // The face is a shadow inside the cowl.
       g.circle(r * 0.42, 0, r * 0.24).fill(COWL_SHADOW);
-      g.circle(r * 0.0, -r * 0.2, 0.7).fill({ color: 0x8fa578, alpha: 0.7 });
+      g.circle(r * 0.0, -r * 0.2, r * 0.12).fill({ color: 0x8fa578, alpha: 0.7 });
     } else {
       // Leather cap, goggles resting up on the brim.
       g.circle(r * 0.15, 0, r * 0.52).fill(LEATHER);
-      g.circle(r * 0.02, -r * 0.17, 0.8).fill(0x3a3f45);
-      g.circle(r * 0.02, r * 0.17, 0.8).fill(0x3a3f45);
-      g.circle(r * 0.02, -r * 0.17, 0.8).stroke({ width: 0.5, color: STEEL });
-      g.circle(r * 0.02, r * 0.17, 0.8).stroke({ width: 0.5, color: STEEL });
+      g.circle(r * 0.02, -r * 0.17, r * 0.14).fill(0x3a3f45);
+      g.circle(r * 0.02, r * 0.17, r * 0.14).fill(0x3a3f45);
+      g.circle(r * 0.02, -r * 0.17, r * 0.14).stroke({ width: r * 0.09, color: STEEL });
+      g.circle(r * 0.02, r * 0.17, r * 0.14).stroke({ width: r * 0.09, color: STEEL });
     }
 
     if (isSelf) {
-      g.circle(0, 0, r + 2.5).stroke({ width: 2, color: 0xf4ead8 });
-    } else if (bot) {
-      g.circle(0, 0, r).stroke({ width: 1, color: 0x000000, alpha: 0.45 });
+      g.circle(0, 0, r * 1.35).stroke({ width: r * 0.28, color: 0xf4ead8 });
     }
   }
 
@@ -298,10 +302,10 @@ export class EntityLayer {
       // 120° state arc stays the authoritative cover telegraph — this is the
       // physical shield inside it.)
       if (pose === 'block') {
-        g.arc(0, 0, r * 1.12, -1.05, 1.05).stroke({ width: 3, color: SHIELD_RAISED });
+        g.arc(0, 0, r * 1.12, -1.05, 1.05).stroke({ width: r * 0.5, color: SHIELD_RAISED });
       } else {
         // Slung on the arm, inside the rim — the squad ring stays unbroken.
-        g.arc(0, 0, r * 0.9, -1.42, -0.5).stroke({ width: 2, color: STEEL });
+        g.arc(0, 0, r * 0.9, -1.42, -0.5).stroke({ width: r * 0.32, color: STEEL });
       }
       // Sword in the right hand.
       const hx = r * 0.1;
@@ -310,41 +314,41 @@ export class EntityLayer {
       const len = r * 1.65;
       g.moveTo(hx, hy)
         .lineTo(hx + Math.cos(ang) * len, hy + Math.sin(ang) * len)
-        .stroke({ width: 1.6, color: BLADE });
+        .stroke({ width: r * 0.3, color: BLADE });
       const gx = hx + Math.cos(ang) * r * 0.4;
       const gy = hy + Math.sin(ang) * r * 0.4;
-      const px = Math.cos(ang + Math.PI / 2) * 1.7;
-      const py = Math.sin(ang + Math.PI / 2) * 1.7;
+      const px = Math.cos(ang + Math.PI / 2) * r * 0.3;
+      const py = Math.sin(ang + Math.PI / 2) * r * 0.3;
       g.moveTo(gx + px, gy + py)
         .lineTo(gx - px, gy - py)
-        .stroke({ width: 1.2, color: GUARD });
+        .stroke({ width: r * 0.22, color: GUARD });
     } else if (cls === 'ranger') {
       // Bow bulging forward, string as the chord behind it.
-      g.arc(r * 0.35, 0, r * 0.85, -1.1, 1.1).stroke({ width: 1.4, color: WOOD });
+      g.arc(r * 0.35, 0, r * 0.85, -1.1, 1.1).stroke({ width: r * 0.26, color: WOOD });
       const ex = r * 0.35 + Math.cos(1.1) * r * 0.85;
       const ey = Math.sin(1.1) * r * 0.85;
       g.moveTo(ex, -ey)
         .lineTo(ex, ey)
-        .stroke({ width: 0.7, color: FLETCH, alpha: 0.8 });
+        .stroke({ width: r * 0.12, color: FLETCH, alpha: 0.8 });
       if (ready) {
         g.moveTo(-r * 0.15, 0)
           .lineTo(r * 1.5, 0)
-          .stroke({ width: 1, color: FLETCH });
+          .stroke({ width: r * 0.17, color: FLETCH });
         g.moveTo(r * 1.5, 0)
           .lineTo(r * 1.15, -r * 0.18)
           .moveTo(r * 1.5, 0)
           .lineTo(r * 1.15, r * 0.18)
-          .stroke({ width: 0.9, color: FLETCH });
+          .stroke({ width: r * 0.15, color: FLETCH });
       }
     } else {
       // Crossbow: stock + steel crossarm, bolt tip winking when loaded.
       g.moveTo(r * 0.15, 0)
         .lineTo(r * 1.3, 0)
-        .stroke({ width: 1.7, color: PACK });
+        .stroke({ width: r * 0.3, color: PACK });
       g.moveTo(r * 0.95, -r * 0.55)
         .lineTo(r * 0.95, r * 0.55)
-        .stroke({ width: 1.3, color: STEEL });
-      if (ready) g.circle(r * 1.42, 0, 0.9).fill(FLETCH);
+        .stroke({ width: r * 0.24, color: STEEL });
+      if (ready) g.circle(r * 1.42, 0, r * 0.16).fill(FLETCH);
     }
   }
 
@@ -365,18 +369,23 @@ export class EntityLayer {
     const r = this.cfg.player.radius * TILE;
     const angle = Math.atan2(e.ay, e.ax);
 
-    // World lighting: one fixed-angle shade along the lower-left rim. Drawn
-    // here (unrotated space) so the sun doesn't spin with the body.
-    g.arc(0, 0, r - 0.8, Math.PI * 0.35, Math.PI * 1.15).stroke({
-      width: 1.6,
-      color: 0x000000,
-      alpha: 0.22,
+    // World lighting, fixed-angle (unrotated space, so the sun doesn't spin
+    // with the body): a filled shade crescent on the lower-left, a small rim
+    // light on the upper-right. Alpha-only — the squad hue stays the read.
+    g.arc(0, 0, r * 0.98, Math.PI * 0.3, Math.PI * 1.2)
+      .arc(0, 0, r * 0.55, Math.PI * 1.2, Math.PI * 0.3, true)
+      .closePath()
+      .fill({ color: 0x000000, alpha: FX.character.shadeAlpha });
+    g.arc(0, 0, r * 0.78, -Math.PI * 0.55, -Math.PI * 0.1).stroke({
+      width: r * 0.16,
+      color: 0xffffff,
+      alpha: FX.character.glintAlpha,
     });
 
     if (e.st & ST_BLOCKING) {
       // Shield arc across the protected 120° frontal sector.
-      g.arc(0, 0, r + 3, angle - Math.PI / 3, angle + Math.PI / 3).stroke({
-        width: 3.5,
+      g.arc(0, 0, r * 1.4, angle - Math.PI / 3, angle + Math.PI / 3).stroke({
+        width: r * 0.55,
         color: 0x9db4c9,
       });
     }
@@ -407,32 +416,33 @@ export class EntityLayer {
       // The sack on their back: a gold diamond trailing opposite the facing,
       // swaying a touch with the gait. Everyone can SEE a carrier — only the
       // amount is squad-private.
-      const sway = Math.sin(s.bobPhase) * 1.2;
-      const bx = -e.ax * (r + 3) - e.ay * sway;
-      const by = -e.ay * (r + 3) + e.ax * sway;
-      g.moveTo(bx, by - 4)
-        .lineTo(bx + 4, by)
-        .lineTo(bx, by + 4)
-        .lineTo(bx - 4, by)
+      const sway = Math.sin(s.bobPhase) * r * 0.2;
+      const bx = -e.ax * r * 1.4 - e.ay * sway;
+      const by = -e.ay * r * 1.4 + e.ax * sway;
+      const d = r * 0.66;
+      g.moveTo(bx, by - d)
+        .lineTo(bx + d, by)
+        .lineTo(bx, by + d)
+        .lineTo(bx - d, by)
         .closePath()
         .fill(0xf2d68c)
-        .stroke({ width: 1, color: 0x7a6544 });
+        .stroke({ width: r * 0.17, color: 0x7a6544 });
     }
     if (e.st & ST_BANKING) {
       // Deposit channel in progress — the "interrupt me!" beacon.
       const pulse = 0.55 + 0.35 * Math.sin(performance.now() / 120);
-      g.circle(0, 0, r + 6).stroke({ width: 2.5, color: 0xf2d68c, alpha: pulse });
+      g.circle(0, 0, r * 1.8).stroke({ width: r * 0.4, color: 0xf2d68c, alpha: pulse });
     }
     if (e.st & ST_ROOTED) {
       // Snared: jagged shackle at the feet. Public state — a pinned target is
       // an invitation for BOTH sides.
-      const rr = r + 2;
+      const rr = r * 1.28;
       for (let i = 0; i < 6; i++) {
         const a0 = (i / 6) * Math.PI * 2;
         const a1 = ((i + 0.5) / 6) * Math.PI * 2;
         g.moveTo(rr * Math.cos(a0), rr * Math.sin(a0))
           .lineTo(rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1))
-          .stroke({ width: 2, color: 0xd8543e, alpha: 0.9 });
+          .stroke({ width: r * 0.33, color: 0xd8543e, alpha: 0.9 });
       }
     }
   }

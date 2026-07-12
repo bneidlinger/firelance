@@ -128,7 +128,7 @@
     <li><b>Render-only.</b> Zero sim / protocol / config-hash changes — facing (<span class="tag">ax/ay</span>), class and state bits were already in every snapshot.</li>
     <li><b>Kept intact:</b> hp bars, name labels, damage flash, block arc, swing wedges, dash streak, banking beacon, root shackles, carry diamond (now sways with the gait), squad disc size = honest hitbox.</li>
     <li><b>Removed:</b> the abstract class marks (inner ring / square) and the black facing tick — helm + weapon carry both jobs now.</li>
-    <li><b>New knobs</b> in <span class="tag">fx/config.ts → FX.character</span>: shadowAlpha, strideAmp, bootR.</li>
+    <li><b>New knobs</b> in <span class="tag">fx/config.ts → FX.character</span>: shadowAlpha, strideAmp, bootR (both × body radius — zoom-proof), outlineW/Color/Alpha (the dark contour), shadeAlpha + glintAlpha (fixed-sun volume). All character linework is radius-relative now; nothing goes wispy when the camera moves.</li>
     <li><b>New for your own archer:</b> <span class="tag">OwnVisual.atkReady</span> mirrors the local fire gate → visible re-nock on reload.</li>
   </ul>
 
@@ -151,7 +151,7 @@ __fl.shot(240,240,2)      // render + crop center → {len}; read via __fl.shotC
 <script>
 'use strict';
 // ==== geometry mirror of packages/client/src/render/entities.ts ====
-const TILE = 15, R = 0.4 * TILE;
+const TILE = 19, R = 0.4 * TILE;
 const SQUAD = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
 const C = {
   STEEL: '#8b939e', STEEL_DARK: '#565e66', STEEL_EDGE: '#4a5058',
@@ -197,12 +197,18 @@ function drawSoldier(ctx, cx, cy, S, o) {
 
   // shadow (unrotated)
   ctx.save(); ctx.globalAlpha = 0.3; ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.ellipse(0, 1.2, r * 1.15, r * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0, r * 0.2, r * 1.15, r * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
 
   // ---- state layer (unrotated) ----
-  ring(ctx, 0, 0, r - 0.8, 1.6, '#000', 0.22, Math.PI * 0.35, Math.PI * 1.15); // fixed sun shade
+  // fixed-sun volume: filled shade crescent low-left, rim light up-right
+  ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.98, Math.PI * 0.3, Math.PI * 1.2);
+  ctx.arc(0, 0, r * 0.55, Math.PI * 1.2, Math.PI * 0.3, true);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+  ring(ctx, 0, 0, r * 0.78, r * 0.16, '#fff', 0.12, -Math.PI * 0.55, -Math.PI * 0.1);
   const a = o.facing || 0, ax = Math.cos(a), ay = Math.sin(a);
-  if (o.pose === 'block') ring(ctx, 0, 0, r + 3, 3.5, '#9db4c9', 1, a - Math.PI / 3, a + Math.PI / 3);
+  if (o.pose === 'block') ring(ctx, 0, 0, r * 1.4, r * 0.55, '#9db4c9', 1, a - Math.PI / 3, a + Math.PI / 3);
   if (o.pose === 'windup' || o.pose === 'active') {
     ctx.save();
     ctx.globalAlpha = o.pose === 'windup' ? 0.14 : 0.4;
@@ -213,28 +219,29 @@ function drawSoldier(ctx, cx, cy, S, o) {
   }
   if (o.dashing) line(ctx, -ax * r * 2.4, -ay * r * 2.4, 0, 0, r, '#fff', 0.25);
   if (o.carry) {
-    const sway = Math.sin(o.bobPhase || 0) * 1.2;
-    const bx = -ax * (r + 3) - ay * sway, by = -ay * (r + 3) + ax * sway;
-    ctx.save(); ctx.fillStyle = '#f2d68c'; ctx.strokeStyle = '#7a6544'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(bx, by - 4); ctx.lineTo(bx + 4, by);
-    ctx.lineTo(bx, by + 4); ctx.lineTo(bx - 4, by); ctx.closePath();
+    const sway = Math.sin(o.bobPhase || 0) * r * 0.2;
+    const bx = -ax * r * 1.4 - ay * sway, by = -ay * r * 1.4 + ax * sway;
+    const d = r * 0.66;
+    ctx.save(); ctx.fillStyle = '#f2d68c'; ctx.strokeStyle = '#7a6544'; ctx.lineWidth = r * 0.17;
+    ctx.beginPath(); ctx.moveTo(bx, by - d); ctx.lineTo(bx + d, by);
+    ctx.lineTo(bx, by + d); ctx.lineTo(bx - d, by); ctx.closePath();
     ctx.fill(); ctx.stroke(); ctx.restore();
   }
-  if (o.banking) ring(ctx, 0, 0, r + 6, 2.5, '#f2d68c', 0.7);
+  if (o.banking) ring(ctx, 0, 0, r * 1.8, r * 0.4, '#f2d68c', 0.7);
   if (o.rooted) {
     for (let i = 0; i < 6; i++) {
-      const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 0.5) / 6) * Math.PI * 2, rr = r + 2;
-      line(ctx, rr * Math.cos(a0), rr * Math.sin(a0), rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1), 2, '#d8543e', 0.9);
+      const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 0.5) / 6) * Math.PI * 2, rr = r * 1.28;
+      line(ctx, rr * Math.cos(a0), rr * Math.sin(a0), rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1), r * 0.33, '#d8543e', 0.9);
     }
   }
 
   // ---- feet (along move direction) ----
   const m = o.moveAng === undefined ? a : o.moveAng;
   const fxd = Math.cos(m), fyd = Math.sin(m);
-  const step = o.moving ? Math.sin(o.bobPhase || 0) * 2.2 : 0;
+  const step = o.moving ? Math.sin(o.bobPhase || 0) * 0.46 * r : 0;
   if (!o.old) {
-    dot(ctx, -fyd * r * 0.5 + fxd * step, fxd * r * 0.5 + fyd * step, 1.25, C.BOOT);
-    dot(ctx, fyd * r * 0.5 - fxd * step, -fxd * r * 0.5 - fyd * step, 1.25, C.BOOT);
+    dot(ctx, -fyd * r * 0.5 + fxd * step, fxd * r * 0.5 + fyd * step, r * 0.3, C.BOOT);
+    dot(ctx, fyd * r * 0.5 - fxd * step, -fxd * r * 0.5 - fyd * step, r * 0.3, C.BOOT);
   }
 
   // ---- rotated body + gear ----
@@ -255,71 +262,82 @@ function drawSoldier(ctx, cx, cy, S, o) {
 
   // back-worn kit first
   if (o.cls === 'engineer') {
-    ctx.save(); ctx.fillStyle = C.PACK; ctx.strokeStyle = C.PACK_EDGE; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, 1.2);
+    ctx.save(); ctx.fillStyle = C.PACK; ctx.strokeStyle = C.PACK_EDGE; ctx.lineWidth = r * 0.17;
+    ctx.beginPath(); ctx.roundRect(-r * 1.08, -r * 0.45, r * 0.75, r * 0.9, r * 0.2);
     ctx.fill(); ctx.stroke(); ctx.restore();
   } else if (o.cls === 'ranger') {
-    line(ctx, -r * 0.4, -r * 0.5, -r * 1.0, -r * 0.85, 2.6, C.PACK);
-    dot(ctx, -r * 1.0, -r * 0.85, 1.1, C.FLETCH);
+    line(ctx, -r * 0.4, -r * 0.5, -r * 1.0, -r * 0.85, r * 0.44, C.PACK);
+    dot(ctx, -r * 1.0, -r * 0.85, r * 0.18, C.FLETCH);
   }
 
   dot(ctx, 0, 0, r, color); // THE squad disc
+  ring(ctx, 0, 0, r, r * 0.2, '#12160e', 0.9); // contour: silhouette pop
 
   if (o.cls === 'fighter') {
-    dot(ctx, -r * 0.1, -r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, -r * 0.62, r * 0.27, 0.8, C.STEEL_EDGE);
-    dot(ctx, -r * 0.1, r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, r * 0.62, r * 0.27, 0.8, C.STEEL_EDGE);
+    dot(ctx, -r * 0.1, -r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, -r * 0.62, r * 0.27, r * 0.14, C.STEEL_EDGE);
+    dot(ctx, -r * 0.1, r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, r * 0.62, r * 0.27, r * 0.14, C.STEEL_EDGE);
     dot(ctx, r * 0.18, 0, r * 0.55, C.STEEL);
-    line(ctx, r * 0.3, 0, r * 0.8, 0, 1.2, C.STEEL_DARK);
-    dot(ctx, r * 0.02, -r * 0.2, 0.8, C.STEEL_BRIGHT, 0.9);
+    line(ctx, r * 0.3, 0, r * 0.8, 0, r * 0.2, C.STEEL_DARK);
+    dot(ctx, r * 0.02, -r * 0.2, r * 0.14, C.STEEL_BRIGHT, 0.9);
   } else if (o.cls === 'ranger') {
     dot(ctx, -r * 0.14, 0, r * 0.42, C.HOOD);
     dot(ctx, r * 0.15, 0, r * 0.55, C.HOOD);
     dot(ctx, r * 0.42, 0, r * 0.24, C.COWL);
-    dot(ctx, 0, -r * 0.2, 0.7, '#8fa578', 0.7);
+    dot(ctx, 0, -r * 0.2, r * 0.12, '#8fa578', 0.7);
   } else {
     dot(ctx, r * 0.15, 0, r * 0.52, C.LEATHER);
-    dot(ctx, r * 0.02, -r * 0.17, 0.8, '#3a3f45'); ring(ctx, r * 0.02, -r * 0.17, 0.8, 0.5, C.STEEL);
-    dot(ctx, r * 0.02, r * 0.17, 0.8, '#3a3f45'); ring(ctx, r * 0.02, r * 0.17, 0.8, 0.5, C.STEEL);
+    dot(ctx, r * 0.02, -r * 0.17, r * 0.14, '#3a3f45'); ring(ctx, r * 0.02, -r * 0.17, r * 0.14, r * 0.09, C.STEEL);
+    dot(ctx, r * 0.02, r * 0.17, r * 0.14, '#3a3f45'); ring(ctx, r * 0.02, r * 0.17, r * 0.14, r * 0.09, C.STEEL);
   }
 
-  if (o.self) ring(ctx, 0, 0, r + 2.5, 2, C.SELF);
-  else if (o.bot) ring(ctx, 0, 0, r, 1, '#000', 0.45);
+  if (o.self) ring(ctx, 0, 0, r * 1.35, r * 0.28, C.SELF);
 
   // gear
   const pose = o.pose || 'idle';
   if (o.cls === 'fighter') {
-    if (pose === 'block') ring(ctx, 0, 0, r * 1.12, 3, C.SHIELD_RAISED, 1, -1.05, 1.05);
-    else ring(ctx, 0, 0, r * 0.9, 2, C.STEEL, 1, -1.42, -0.5);
+    if (pose === 'block') ring(ctx, 0, 0, r * 1.12, r * 0.5, C.SHIELD_RAISED, 1, -1.05, 1.05);
+    else ring(ctx, 0, 0, r * 0.9, r * 0.32, C.STEEL, 1, -1.42, -0.5);
     const hx = r * 0.1, hy = r * 0.9;
     const ang = pose === 'windup' ? 1.65 : pose === 'active' ? -0.45 : pose === 'block' ? 1.0 : 0.32;
     const len = r * 1.65;
-    line(ctx, hx, hy, hx + Math.cos(ang) * len, hy + Math.sin(ang) * len, 1.6, C.BLADE);
+    line(ctx, hx, hy, hx + Math.cos(ang) * len, hy + Math.sin(ang) * len, r * 0.3, C.BLADE);
     const gx = hx + Math.cos(ang) * r * 0.4, gy = hy + Math.sin(ang) * r * 0.4;
-    const px = Math.cos(ang + Math.PI / 2) * 1.7, py = Math.sin(ang + Math.PI / 2) * 1.7;
-    line(ctx, gx + px, gy + py, gx - px, gy - py, 1.2, C.GUARD);
+    const px = Math.cos(ang + Math.PI / 2) * r * 0.3, py = Math.sin(ang + Math.PI / 2) * r * 0.3;
+    line(ctx, gx + px, gy + py, gx - px, gy - py, r * 0.22, C.GUARD);
   } else if (o.cls === 'ranger') {
-    ring(ctx, r * 0.35, 0, r * 0.85, 1.4, C.WOOD, 1, -1.1, 1.1);
+    ring(ctx, r * 0.35, 0, r * 0.85, r * 0.26, C.WOOD, 1, -1.1, 1.1);
     const ex = r * 0.35 + Math.cos(1.1) * r * 0.85, ey = Math.sin(1.1) * r * 0.85;
-    line(ctx, ex, -ey, ex, ey, 0.7, C.FLETCH, 0.8);
+    line(ctx, ex, -ey, ex, ey, r * 0.12, C.FLETCH, 0.8);
     if (o.ready !== false) {
-      line(ctx, -r * 0.15, 0, r * 1.5, 0, 1, C.FLETCH);
-      line(ctx, r * 1.5, 0, r * 1.15, -r * 0.18, 0.9, C.FLETCH);
-      line(ctx, r * 1.5, 0, r * 1.15, r * 0.18, 0.9, C.FLETCH);
+      line(ctx, -r * 0.15, 0, r * 1.5, 0, r * 0.17, C.FLETCH);
+      line(ctx, r * 1.5, 0, r * 1.15, -r * 0.18, r * 0.15, C.FLETCH);
+      line(ctx, r * 1.5, 0, r * 1.15, r * 0.18, r * 0.15, C.FLETCH);
     }
   } else {
-    line(ctx, r * 0.15, 0, r * 1.3, 0, 1.7, C.PACK);
-    line(ctx, r * 0.95, -r * 0.55, r * 0.95, r * 0.55, 1.3, C.STEEL);
-    if (o.ready !== false) dot(ctx, r * 1.42, 0, 0.9, C.FLETCH);
+    line(ctx, r * 0.15, 0, r * 1.3, 0, r * 0.3, C.PACK);
+    line(ctx, r * 0.95, -r * 0.55, r * 0.95, r * 0.55, r * 0.24, C.STEEL);
+    if (o.ready !== false) dot(ctx, r * 1.42, 0, r * 0.16, C.FLETCH);
   }
   ctx.restore();
   ctx.restore();
 }
 
 function ground(ctx, w, h, tile) {
+  // mirrors scene.ts: block-mottle + sparse dapples, no checker
+  const cols = ['#2f3428', '#333929', '#2c3226'];
   for (let y = 0; y < h / tile; y++)
     for (let x = 0; x < w / tile; x++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? '#2f3428' : '#333929';
+      const blk = ((((x >> 2) * 2654435761) ^ ((y >> 2) * 40503)) >>> 0) % 3;
+      ctx.fillStyle = cols[blk];
       ctx.fillRect(x * tile, y * tile, tile, tile);
+      const h2 = (((x * 40503) ^ (y * 73856093)) >>> 0) % 977;
+      if (h2 % 11 === 3) {
+        ctx.save(); ctx.globalAlpha = 0.05;
+        ctx.fillStyle = h2 % 2 === 0 ? '#000' : '#4a5238';
+        ctx.beginPath();
+        ctx.arc((x + 0.5) * tile, (y + 0.5) * tile, tile * (0.35 + (h2 % 3) * 0.12), 0, Math.PI * 2);
+        ctx.fill(); ctx.restore();
+      }
     }
 }
 function setup(id) {

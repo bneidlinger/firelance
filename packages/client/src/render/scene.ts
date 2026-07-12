@@ -4,11 +4,12 @@ import type { MapData } from '@shared/map/types';
 // Pixi scene: a world container (scaled TILE px per world unit) holding the
 // static map layer and the entity layer, with a camera that follows a point.
 
-export const TILE = 15;
+export const TILE = 19;
 
 const COLORS = {
   ground: 0x2f3428,
   groundAlt: 0x333929,
+  groundDeep: 0x2c3226,
   forest: 0x22371f,
   water: 0x1f3a52,
   bridge: 0x7a6544,
@@ -68,12 +69,14 @@ export class Scene {
     this.mapLayer.removeChildren();
     this.forestG = null;
     const g = new Graphics();
-    // Ground: the readability checker plus a deterministic per-tile micro-tint
-    // (M6 s4) — hashed from coords, so it's identical every visit and NEVER
-    // touches world.rng. Fields stop looking like graph paper.
+    // Ground: organic mottling, all of it hashed from coords — identical every
+    // visit, NEVER world.rng. The per-tile checker read as graph paper (and
+    // dated the whole frame); tone now drifts in soft 4×4-block patches with
+    // per-tile grain on top.
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
-        const base = (x + y) % 2 === 0 ? COLORS.ground : COLORS.groundAlt;
+        const blk = ((((x >> 2) * 2654435761) ^ ((y >> 2) * 40503)) >>> 0) % 3;
+        const base = blk === 0 ? COLORS.ground : blk === 1 ? COLORS.groundAlt : COLORS.groundDeep;
         const h = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 5;
         const tinted = h === 0 ? base + 0x030402 : h === 1 ? base - 0x020302 : base;
         g.rect(x * TILE, y * TILE, TILE, TILE).fill(tinted);
@@ -94,6 +97,22 @@ export class Scene {
         }
       }
     }
+    // Soft dapples over open ground: sparse hashed blots that blur the last of
+    // the tile grid into something field-like. Never on water or walls.
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const i = y * map.width + x;
+        if (map.walk[i] === 1 || map.vision[i] === 1) continue;
+        const h = (((x * 40503) ^ (y * 73856093)) >>> 0) % 977;
+        if (h % 11 !== 3) continue;
+        const ox = ((h % 7) / 7 - 0.5) * 0.8;
+        const oy = ((h % 5) / 5 - 0.5) * 0.8;
+        g.circle((x + 0.5 + ox) * TILE, (y + 0.5 + oy) * TILE, TILE * (0.35 + (h % 3) * 0.12)).fill(
+          { color: h % 2 === 0 ? 0x000000 : 0x4a5238, alpha: 0.05 },
+        );
+      }
+    }
+
     // Bridges: walkable tiles surrounded by water read as planks.
     // (The parser doesn't export them separately; infer from the ASCII '=' being
     // walkable while orthogonal water sits beside it — cheap visual pass.)
