@@ -26,6 +26,8 @@ export class Hud {
   private lastSummary: SummaryMsg | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private alarmTimer: ReturnType<typeof setTimeout> | null = null;
+  private flashUntil = 0;
+  private lowHpWas = false;
 
   constructor(cfg: GameConfig) {
     this.cfg = cfg;
@@ -135,7 +137,20 @@ export class Hud {
   vignette(): void {
     const v = el('vignette');
     v.style.opacity = '1';
+    this.flashUntil = performance.now() + 130;
     setTimeout(() => (v.style.opacity = '0'), 120);
+  }
+
+  /** Low-HP breathing pulse on the same vignette (M6 s2, own hp only). The
+   *  hit flash outranks it for its brief window. */
+  lowHpFrame(nowMs: number, active: boolean): void {
+    if (nowMs < this.flashUntil) return;
+    if (active) {
+      el('vignette').style.opacity = String(0.3 + 0.22 * Math.sin(nowMs / 260));
+    } else if (this.lowHpWas) {
+      el('vignette').style.opacity = '0';
+    }
+    this.lowHpWas = active;
   }
 
   toast(text: string): void {
@@ -362,7 +377,7 @@ export class Hud {
     for (const series of m.banked) for (const v of series) if (v > maxG) maxG = v;
     const spanTicks = (samples - 1) * m.everyTicks;
     const x = (tk: number): number =>
-      padL + ((W - padL - padR) * Math.max(0, Math.min(1, (tk - m.startTick) / spanTicks)));
+      padL + (W - padL - padR) * Math.max(0, Math.min(1, (tk - m.startTick) / spanTicks));
     const y = (g: number): number => H - padB - (H - padT - padB) * (g / maxG);
 
     // Frame + max label + duration label.
@@ -375,7 +390,11 @@ export class Hud {
     ctx.fillText(`${maxG}g`, padL + 3, padT + 10);
     ctx.textAlign = 'right';
     const mins = spanTicks / this.cfg.tick.simHz / 60;
-    ctx.fillText(`${mins < 1 ? `${Math.round(mins * 60)}s` : `${mins.toFixed(1)}min`} of banking`, W - padR - 3, H - 4);
+    ctx.fillText(
+      `${mins < 1 ? `${Math.round(mins * 60)}s` : `${mins.toFixed(1)}min`} of banking`,
+      W - padR - 3,
+      H - 4,
+    );
 
     // The big beats: a vertical whisper + an emoji in the squad's color.
     const BEAT = { keepDestroyed: '💥', keepRebuilt: '🏰', eliminated: '💀' } as const;

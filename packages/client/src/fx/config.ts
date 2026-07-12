@@ -43,6 +43,23 @@ export const FX = {
     gapOverrides: { coin: 90, rumor: 400 } as Record<string, number>,
     defaults: { master: 0.5, sfx: 1, ambient: 1 },
   },
+  combat: {
+    /** Own-hp fraction under which the vignette pulses and the heart thumps. */
+    lowHpFrac: 0.3,
+    heartbeatGapMs: 900,
+    footstepGapMs: 280,
+    /** Own-death desaturate pulse duration (CSS class on #app). */
+    desatMs: 650,
+  },
+  movement: {
+    /** Walk bob: radians of phase per world unit walked, and scale amplitude.
+     *  Driven by DISTANCE, not time — it reads as gait, and a standing body
+     *  holds still. */
+    bobPerUnit: 2.6,
+    bobAmp: 0.045,
+    /** Mean ms between gold glints on a carrier. */
+    glintEveryMs: 320,
+  },
   emit: {
     /** Arrow dies in terrain: pale splinters, quick and dry. */
     arrowThud: {
@@ -62,6 +79,84 @@ export const FX = {
       size: [1, 2.2],
       gravity: 14,
       drag: 5,
+    } as EmitSpec,
+    /** Steel meets flesh: chunkier than an arrow, same red family. */
+    meleeFlesh: {
+      count: 10,
+      colors: [0xf05a4d, 0xc23a30, 0xffffff],
+      speed: [2, 8],
+      life: [180, 380],
+      size: [1.2, 2.6],
+      gravity: 16,
+      drag: 5,
+    } as EmitSpec,
+    /** Shield says no: steel sparks, cold palette, no gravity — they fly. */
+    blockWedge: {
+      count: 7,
+      colors: [0x9db4c9, 0xd8e4ef, 0xffffff],
+      speed: [4, 10],
+      life: [120, 260],
+      size: [1, 2],
+      drag: 7,
+    } as EmitSpec,
+    /** Masonry chips off a struck wall/gate/tower. */
+    structChip: {
+      count: 6,
+      colors: [0x8a8a80, 0x6b6b60, 0xa89f8a],
+      speed: [1.5, 5],
+      life: [200, 420],
+      size: [1, 2.2],
+      gravity: 10,
+      drag: 4,
+    } as EmitSpec,
+    /** Iron jaws bite: metal + rust burst, meaner than a hit. */
+    trapJaws: {
+      count: 12,
+      colors: [0xb0b0a8, 0xd8543e, 0x707068],
+      speed: [3, 10],
+      life: [160, 360],
+      size: [1, 2.4],
+      gravity: 12,
+      drag: 6,
+    } as EmitSpec,
+    /** A body breaks into shards — call sites override colors with the
+     *  victim's squad color. */
+    deathShatter: {
+      count: 14,
+      colors: [0xffffff],
+      speed: [2, 9],
+      life: [260, 600],
+      size: [1.5, 3],
+      gravity: 12,
+      drag: 3.5,
+    } as EmitSpec,
+    /** Kicked-up earth behind a dash. */
+    dashDust: {
+      count: 3,
+      colors: [0xb9ad98, 0x8f8574],
+      speed: [0.5, 2.5],
+      life: [180, 360],
+      size: [1, 2],
+      drag: 3,
+    } as EmitSpec,
+    /** Dash afterimage: one near-still squad-tinted dot per frame — call
+     *  sites override colors. */
+    dashTrail: {
+      count: 1,
+      colors: [0xffffff],
+      speed: [0, 0.5],
+      life: [140, 220],
+      size: [2.5, 3.5],
+    } as EmitSpec,
+    /** Gold winks off a carried purse; floats UP (negative gravity). */
+    carryGlint: {
+      count: 1,
+      colors: [0xf2d68c, 0xffe9b0, 0xffffff],
+      speed: [0.3, 1.2],
+      life: [240, 420],
+      size: [1, 1.8],
+      gravity: -2,
+      drag: 2,
     } as EmitSpec,
   },
 };

@@ -91,6 +91,8 @@ interface GameState {
   particles: ParticleLayer;
   /** Rising gold text (M6 s1) — announcements, so above fog like pings. */
   floats: FloatTextLayer;
+  /** Ground stains (M6 s2) — bomb scorch on its own under-structures layer. */
+  decals: FxLayer;
   /** Last-known enemy structures (M5) — rendered dimmed under fog. */
   ghosts: GhostMemory;
   fog: FogLayer;
@@ -342,8 +344,14 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'hit': {
       game.fx.hitSpark(ev.x, ev.y, ev.blocked);
-      if (ev.kind === 'arrow' && !ev.blocked) {
+      // Every outcome answers differently: cold steel sparks off a shield,
+      // red spray off flesh — the fight is readable without the hp bars.
+      if (ev.blocked) {
+        game.particles.emit(ev.x, ev.y, FX.emit.blockWedge);
+      } else if (ev.kind === 'arrow') {
         game.particles.emit(ev.x, ev.y, FX.emit.arrowFlesh);
+      } else if (ev.kind === 'melee') {
+        game.particles.emit(ev.x, ev.y, FX.emit.meleeFlesh);
       }
       game.entities.flash(ev.victim);
       game.lastHitPos.set(ev.victim, { x: ev.x, y: ev.y });
@@ -368,7 +376,12 @@ function handleEvent(ev: NetEvent): void {
         ev.droppedGold,
       );
       const pos = game.lastHitPos.get(ev.victim);
-      if (pos) game.fx.death(pos.x, pos.y, SQUAD_COLORS[victim?.squad ?? 0] ?? 0xffffff);
+      if (pos) {
+        const c = SQUAD_COLORS[victim?.squad ?? 0] ?? 0xffffff;
+        game.fx.death(pos.x, pos.y, c);
+        // The body breaks into shards of its own color.
+        game.particles.emit(pos.x, pos.y, { ...FX.emit.deathShatter, colors: [c, c, 0xffffff] });
+      }
       // Bounty made visible where it was earned. Only where we SAW the hit —
       // lastHitPos is fed by positionally-filtered events, so this can't leak
       // a kill's location through the fog.
@@ -376,6 +389,10 @@ function handleEvent(ev: NetEvent): void {
       if (ev.victim === game.ownId) {
         game.lastKillerName = killer?.name ?? null;
         sfx('ownDeath');
+        // Color drains for a beat (CSS on #app; fast in, slow seep back).
+        const app = document.getElementById('app')!;
+        app.classList.add('desat');
+        setTimeout(() => app.classList.remove('desat'), FX.combat.desatMs);
       } else {
         sfx('death', pos, listener);
       }
@@ -447,9 +464,11 @@ function handleEvent(ev: NetEvent): void {
     case 'bombEnd':
       game.bombs.onEnd(ev.id);
       game.fx.explosion(ev.x, ev.y);
+      game.decals.scorch(ev.x, ev.y);
       sfx('bombBoom', { x: ev.x, y: ev.y }, listener);
       break;
     case 'keepHit': {
+      game.particles.emit(ev.x, ev.y, FX.emit.structChip);
       const info = game.keepInfo.get(ev.squad);
       if (info) {
         info.hp = ev.hp;
@@ -468,6 +487,7 @@ function handleEvent(ev: NetEvent): void {
         game.keeps.update(ev.squad, info.x, info.y, 0);
       }
       game.fx.explosion(ev.x, ev.y, true);
+      game.decals.scorch(ev.x, ev.y, true); // the scar outlives the rubble
       sfx('keepFall'); // a map event — thunder for everyone
       const names = ['Red', 'Blue', 'Green', 'Gold'];
       game.hud.news(
@@ -550,6 +570,7 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'structDestroyed':
       game.fx.explosion(ev.x, ev.y);
+      game.particles.emit(ev.x, ev.y, { ...FX.emit.structChip, count: 14 });
       // The memory is certain now — no ghost should outlive the rubble.
       game.ghosts.forget(ev.id);
       break;
@@ -558,7 +579,10 @@ function handleEvent(ev: NetEvent): void {
       if (ev.by === game.ownId) game.hud.toast('Patched — supply spent');
       break;
     case 'trapTriggered': {
-      game.fx.explosion(ev.x, ev.y);
+      // Iron jaws, not fire: metal-and-rust burst + a rust ring. The generic
+      // explosion read as a bomb and lied about what happened.
+      game.particles.emit(ev.x, ev.y, FX.emit.trapJaws);
+      game.fx.respawnRing(ev.x, ev.y, 0xd8543e);
       if (ev.victim === game.ownId) {
         sfx('trapSnap'); // it's around YOUR leg — full volume
         game.hud.alarm('⚠ SNARED ⚠');
@@ -623,6 +647,7 @@ async function setupScene(
   game?.pings.clear();
   game?.particles.clear();
   game?.floats.clear();
+  game?.decals.clear();
 
   game = {
     cfg,
@@ -636,13 +661,18 @@ async function setupScene(
     entities: new EntityLayer(scene.entityLayer, cfg),
     projectiles: new ProjectileLayer(scene.projectileLayer, welcome.tickRate),
     sacks: new SackLayer(scene.sackLayer),
-    structures: new StructureLayer(scene.structureLayer),
+    // Chip dust on hp drops the snapshot diff detects — no wire event exists
+    // for structure hits, and none is needed.
+    structures: new StructureLayer(scene.structureLayer, (x, y) =>
+      game?.particles.emit(x, y, FX.emit.structChip),
+    ),
     bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     particles: new ParticleLayer(scene.fxLayer),
     fx: new FxLayer(scene.fxLayer),
     pings: new FxLayer(scene.pingLayer),
     floats: new FloatTextLayer(scene.pingLayer),
+    decals: new FxLayer(scene.decalLayer),
     ghosts: new GhostMemory(),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
@@ -670,6 +700,8 @@ let lastFrame = 0;
 let fps = 0;
 let lastOverlay = 0;
 let lastBytes = { sent: 0, recv: 0, at: 0 };
+let lastBeatMs = 0; // heartbeat pacing (M6 s2) — own timer, not the spam gate
+let lastStepMs = 0; // footstep pacing (M6 s2)
 
 function startLoop(): void {
   if (loopStarted) return;
@@ -758,6 +790,23 @@ function frame(now: number): void {
   game.entities.sync(visible, roster, game.ownId, ownVisual);
   game.sacks.sync(interp.sacks, now);
 
+  // ---- movement life (M6 s2): dash kicks up earth + a squad-tint trail,
+  // carried gold winks. Emitted per-frame off visible state bits only.
+  const moveFx = (x: number, y: number, st: number, squad: number): void => {
+    if ((st & ST_DASHING) !== 0) {
+      game!.particles.emit(x, y, FX.emit.dashDust);
+      const c = SQUAD_COLORS[squad] ?? 0xffffff;
+      game!.particles.emit(x, y, { ...FX.emit.dashTrail, colors: [c] });
+    }
+    if ((st & ST_CARRYING) !== 0 && Math.random() < dtMs / FX.movement.glintEveryMs) {
+      game!.particles.emit(x, y, FX.emit.carryGlint);
+    }
+  };
+  for (const [id, e] of visible) {
+    if (id !== game.ownId) moveFx(e.x, e.y, e.st, roster.get(id)?.squad ?? 0);
+  }
+  if (ownVisual) moveFx(ownVisual.x, ownVisual.y, ownVisual.st, game.ownSquad);
+
   // ---- squad viewers, shared by the fog mask, ghost expiry, and towers
   // (M4 s3): own predicted pos + ally snapshot positions + own watchtowers.
   const viewers: Array<{ x: number; y: number }> = [];
@@ -800,11 +849,26 @@ function frame(now: number): void {
   game.bombs.frame(renderTick, now);
   game.keeps.frame(now);
   game.fx.frame(now);
+  game.decals.frame(now);
   game.particles.frame(now);
   game.pings.frame(now);
   game.floats.frame(now);
   game.hud.frame(now);
   game.hud.timer(game.phase, game.phaseEndsTick, estTick);
+
+  // ---- low-HP state (M6 s2, own only): breathing vignette + heartbeat.
+  const kitMax = getKit(game.cfg, game.prediction.classId).maxHp;
+  const lowHp =
+    !noPredict &&
+    game.prediction.ready &&
+    game.prediction.alive &&
+    latestYouHp > 0 &&
+    latestYouHp / kitMax < FX.combat.lowHpFrac;
+  game.hud.lowHpFrame(now, lowHp);
+  if (lowHp && now - lastBeatMs > FX.combat.heartbeatGapMs) {
+    lastBeatMs = now;
+    sfx('heartbeat');
+  }
 
   // ---- fog from the same squad viewers computed above.
   game.fog.update(now, viewers, game.structOcc);
@@ -989,6 +1053,20 @@ function sampleAndSendInput(now: number): void {
   const kit = getKit(game.cfg, cls);
   const pState = game.prediction.predicted;
   const blocking = kit.shield !== undefined && (move.b & BTN_BLOCK) !== 0 && pState.dashTicks <= 0;
+  // Quiet self-only footsteps (M6 s2), paced by their own timer so the spam
+  // gate's counters keep meaning "collapsed event spam". Rooted feet are
+  // pinned; dashing has its own voice.
+  if (
+    (move.mx !== 0 || move.my !== 0) &&
+    alive &&
+    game.phase === PHASE_LIVE &&
+    pState.dashTicks <= 0 &&
+    pState.rootTicks <= 0 &&
+    now - lastStepMs > FX.combat.footstepGapMs
+  ) {
+    lastStepMs = now;
+    sfx('step');
+  }
   if (
     (move.b & BTN_FIRE) !== 0 &&
     alive &&

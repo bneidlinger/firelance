@@ -11,6 +11,7 @@ import {
   ST_ROOTED,
   ST_WINDUP,
 } from '@shared/net/messages';
+import { FX } from '../fx/config';
 import type { RichEnt } from '../net/interpolation';
 import { SQUAD_COLORS, TILE } from './scene';
 
@@ -27,6 +28,11 @@ interface Sprite {
   cls: ClassId | null;
   flashUntil: number;
   baseColor: number;
+  // Walk bob (M6 s2): phase advances with DISTANCE walked, so it reads as
+  // gait and a standing body holds still.
+  lastX: number;
+  lastY: number;
+  bobPhase: number;
 }
 
 export interface OwnVisual {
@@ -93,9 +99,35 @@ export class EntityLayer {
     root.addChild(label);
 
     this.container.addChild(root);
-    s = { root, body, state, hpFill, label, cls: null, flashUntil: 0, baseColor: color };
+    s = {
+      root,
+      body,
+      state,
+      hpFill,
+      label,
+      cls: null,
+      flashUntil: 0,
+      baseColor: color,
+      lastX: NaN,
+      lastY: NaN,
+      bobPhase: 0,
+    };
     this.sprites.set(id, s);
     return s;
+  }
+
+  /** Advance the gait phase by distance moved and squash the body a touch.
+   *  Teleports (respawn, first sight) don't spin the phase. */
+  private bob(s: Sprite, px: number, py: number): void {
+    const moved = Math.hypot(px - s.lastX, py - s.lastY);
+    if (moved > 0.01 && moved < TILE * 2) {
+      s.bobPhase += (moved / TILE) * FX.movement.bobPerUnit;
+      s.body.scale.set(1 + Math.sin(s.bobPhase) * FX.movement.bobAmp);
+    } else if (!(moved > 0.01)) {
+      s.body.scale.set(1);
+    }
+    s.lastX = px;
+    s.lastY = py;
   }
 
   /** Redraw the body when class changes (fighters read heavier than rangers). */
@@ -229,6 +261,7 @@ export class EntityLayer {
       // Damage flash: brief warm tint on the whole sprite.
       s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
       s.root.position.set(e.x * TILE, e.y * TILE);
+      this.bob(s, e.x * TILE, e.y * TILE);
     }
     if (own) {
       seen.add(ownId);
@@ -239,6 +272,7 @@ export class EntityLayer {
       this.drawHp(s, own.hp, own.cls);
       s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
       s.root.position.set(own.x * TILE, own.y * TILE);
+      this.bob(s, own.x * TILE, own.y * TILE);
     }
     for (const [id, s] of this.sprites) {
       if (!seen.has(id)) {

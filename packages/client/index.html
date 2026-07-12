@@ -18,6 +18,16 @@
         position: fixed;
         inset: 0;
       }
+      /* Own-death desaturate pulse (M6 s2): color drains the instant you die
+         and seeps back — fast in (the .desat rule), slow out (the base rule).
+         CSS transitions read the duration off the DESTINATION state. */
+      #app canvas {
+        transition: filter 0.6s ease-out;
+      }
+      #app.desat canvas {
+        filter: saturate(0.25) brightness(0.85);
+        transition: filter 0.06s;
+      }
       .hud {
         position: fixed;
         color: #f4ead8;

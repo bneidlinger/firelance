@@ -150,6 +150,8 @@ export type SfxName =
   | 'rebuilt'
   | 'respawn'
   | 'dash'
+  | 'heartbeat'
+  | 'step'
   | 'countdown'
   | 'live'
   | 'matchEnd'
@@ -252,6 +254,14 @@ const SOUNDS: Record<SfxName, Note[]> = {
     { wave: 'sine', f0: 470, f1: 380, d: 0.16, g: 0.14, at: 0.12 },
   ],
   dash: [{ wave: 'noise', f0: 0, d: 0.1, g: 0.3, lp: 3400 }],
+  // Lub-dub, quiet and low — it's YOUR chest, not the mix's. Paced by its
+  // own timer in the frame loop, not the spam gate.
+  heartbeat: [
+    { wave: 'sine', f0: 68, f1: 45, d: 0.09, g: 0.5 },
+    { wave: 'sine', f0: 58, f1: 40, d: 0.11, g: 0.38, at: 0.14 },
+  ],
+  // A boot on dirt: barely-there tick, self-only, paced by its own timer.
+  step: [{ wave: 'noise', f0: 0, d: 0.045, g: 0.09, lp: 900 }],
   countdown: [{ wave: 'square', f0: 660, d: 0.09, g: 0.3 }],
   live: [
     { wave: 'square', f0: 660, d: 0.1, g: 0.35 },

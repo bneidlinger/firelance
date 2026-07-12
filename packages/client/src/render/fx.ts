@@ -80,6 +80,17 @@ export class FxLayer {
     this.add(embers, x, y, big ? 700 : 380, 1.9);
   }
 
+  /** Bomb scar: a dark stain that outlives the flash and fades slowly —
+   *  the ground remembers where the siege happened. `big` for keep-falls. */
+  scorch(x: number, y: number, big = false): void {
+    const s = big ? 1.8 : 1;
+    const g = new Graphics();
+    g.circle(0, 0, 10 * s).fill({ color: 0x14170f, alpha: 0.5 });
+    g.circle(0, 0, 6 * s).fill({ color: 0x0a0c08, alpha: 0.6 });
+    g.circle(0, 0, 3 * s).fill({ color: 0x2a2118, alpha: 0.7 });
+    this.add(g, x, y, big ? 14000 : 9000, 1.04);
+  }
+
   private add(g: Graphics, x: number, y: number, lifeMs: number, grow: number): void {
     g.position.set(x * TILE, y * TILE);
     this.container.addChild(g);

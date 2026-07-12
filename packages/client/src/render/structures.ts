@@ -23,7 +23,13 @@ interface StructSprite {
 export class StructureLayer {
   private sprites = new Map<number, StructSprite>();
 
-  constructor(private readonly container: Container) {}
+  constructor(
+    private readonly container: Container,
+    /** Fired when a LIVE piece's hp drops between snapshots (M6 s2): there is
+     *  no per-hit structure event on the wire — the snapshot diff IS the hit
+     *  detector, so chip dust costs zero protocol. */
+    private readonly onChip?: (x: number, y: number) => void,
+  ) {}
 
   clear(): void {
     for (const s of this.sprites.values()) s.g.destroy();
@@ -47,6 +53,7 @@ export class StructureLayer {
         return;
       }
       if (sp) {
+        if (!ghost && !sp.ghost && s.hp < sp.hp) this.onChip?.(s.tx + 0.5, s.ty + 0.5);
         sp.g.destroy();
         this.sprites.delete(s.i);
       }
