@@ -4,7 +4,7 @@ import type { MapData } from '@shared/map/types';
 // Pixi scene: a world container (scaled TILE px per world unit) holding the
 // static map layer and the entity layer, with a camera that follows a point.
 
-export const TILE = 12;
+export const TILE = 15;
 
 const COLORS = {
   ground: 0x2f3428,
