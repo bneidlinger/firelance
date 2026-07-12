@@ -20,6 +20,7 @@
     "build:client": "npm -w @firelance/client run build",
     "build:server": "node scripts/build-server.mjs",
     "start": "node dist/server.mjs --config prototype --bots 11 --static packages/client/dist",
+    "host": "node scripts/host-night.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/bots && tsc -p packages/client && tsc -p tsconfig.json",
