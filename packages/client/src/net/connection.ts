@@ -28,6 +28,12 @@ function storeResumeToken(token: string): void {
   }
 }
 
+/** Front-door gate (M6 s4): a live resume token means this tab already has a
+ *  seat — F5 must reclaim it instantly, never show a menu. */
+export function hasResumeToken(): boolean {
+  return readResumeToken() !== undefined;
+}
+
 export interface ConnectionOpts {
   url: string;
   name: string;
@@ -59,6 +65,13 @@ export class Connection {
 
   constructor(opts: ConnectionOpts) {
     this.opts = opts;
+  }
+
+  /** Set who we are BEFORE connect() — the front door picks name/class after
+   *  construction (the hello reads opts at send time). */
+  setIdentity(name: string, cls?: 'fighter' | 'ranger' | 'engineer'): void {
+    this.opts.name = name;
+    this.opts.cls = cls;
   }
 
   connect(): void {

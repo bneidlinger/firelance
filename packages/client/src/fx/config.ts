@@ -65,6 +65,18 @@ export const FX = {
     /** Deposit channel: pitch step per quarter of the channel. */
     channelPitchStep: 0.13,
   },
+  world: {
+    /** Mean ms between water sparkles near the listener. */
+    waterGlintEveryMs: 90,
+    /** Water sparkles only spawn within this range of the player (units). */
+    waterGlintRange: 26,
+    /** Mean ms between gold glints at each town. */
+    townGlintEveryMs: 1500,
+    /** Forest canopy breath: alpha = base ± amp on a slow sine. */
+    forestBreathPeriodMs: 1900,
+    forestBreathBase: 0.88,
+    forestBreathAmp: 0.08,
+  },
   movement: {
     /** Walk bob: radians of phase per world unit walked, and scale amplitude.
      *  Driven by DISTANCE, not time — it reads as gait, and a standing body
@@ -182,6 +194,15 @@ export const FX = {
       size: [2, 3.6],
       gravity: -1.2,
       drag: 1.2,
+    } as EmitSpec,
+    /** Sun catches a wave: one pale-blue wink on open water. */
+    waterGlint: {
+      count: 1,
+      colors: [0x9db4c9, 0xd8e4ef, 0x6f95b8],
+      speed: [0.1, 0.5],
+      life: [420, 800],
+      size: [1, 1.8],
+      drag: 1,
     } as EmitSpec,
     /** Gold fountains out of a completed deposit. */
     coinBurst: {

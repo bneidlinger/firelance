@@ -339,6 +339,144 @@
         display: none;
         z-index: 18;
       }
+      #frontdoor {
+        inset: 0;
+        background: radial-gradient(ellipse at center, #1a1e14 0%, #0d100d 75%);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        pointer-events: auto;
+        z-index: 60;
+        text-align: center;
+      }
+      #frontdoor h1 {
+        color: #d5aa54;
+        font-size: 42px;
+        letter-spacing: 6px;
+        margin: 0;
+        text-shadow: 0 2px 12px rgba(213, 170, 84, 0.35);
+      }
+      #frontdoor .primer {
+        color: #b9ad98;
+        font-size: 14px;
+        line-height: 1.7;
+        max-width: 460px;
+      }
+      #frontdoor .primer b {
+        color: #f2d68c;
+      }
+      #doorcards {
+        display: flex;
+        gap: 14px;
+      }
+      .doorcard {
+        width: 172px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 2px solid #3a3f33;
+        border-radius: 8px;
+        padding: 14px 12px;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          transform 0.15s;
+      }
+      .doorcard:hover {
+        transform: translateY(-3px);
+      }
+      .doorcard.sel {
+        border-color: #d5aa54;
+        background: rgba(213, 170, 84, 0.08);
+      }
+      .doorcard .ic {
+        font-size: 30px;
+      }
+      .doorcard .ti {
+        color: #f4ead8;
+        font-weight: bold;
+        margin: 6px 0 4px;
+      }
+      .doorcard .bl {
+        color: #b9ad98;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #doorname {
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #3a3f33;
+        border-radius: 5px;
+        color: #f4ead8;
+        font-family: inherit;
+        font-size: 15px;
+        padding: 7px 12px;
+        text-align: center;
+        width: 220px;
+        outline: none;
+      }
+      #doorname:focus {
+        border-color: #d5aa54;
+      }
+      #doorplay {
+        background: #d5aa54;
+        color: #14170f;
+        font-weight: bold;
+        font-size: 17px;
+        letter-spacing: 2px;
+        border-radius: 6px;
+        padding: 9px 46px;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+      }
+      #doorplay:hover {
+        background: #f2d68c;
+      }
+      #doorhelp {
+        color: #b9ad98;
+        font-size: 12px;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      #helpov {
+        inset: 0;
+        background: rgba(10, 12, 8, 0.88);
+        display: none;
+        pointer-events: auto;
+        z-index: 70;
+        text-align: center;
+        padding-top: 14vh;
+        cursor: pointer;
+      }
+      #helpov .box {
+        display: inline-block;
+        text-align: left;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #3a3f33;
+        border-radius: 8px;
+        padding: 18px 26px;
+        font-size: 13px;
+        line-height: 2;
+      }
+      #helpov .hdr {
+        color: #d5aa54;
+        font-weight: bold;
+        font-size: 15px;
+      }
+      #helpov .key {
+        display: inline-block;
+        border: 1px solid #b9ad98;
+        border-radius: 3px;
+        padding: 0 6px;
+        margin-right: 8px;
+        font-weight: bold;
+        color: #f2d68c;
+        min-width: 34px;
+        text-align: center;
+      }
+      #helpov .sub {
+        color: #b9ad98;
+      }
     </style>
   </head>
   <body>
@@ -376,9 +514,57 @@
       <div class="hdr">Settings</div>
       <label>Master <input id="vol-master" type="range" min="0" max="100" /></label>
       <label>Effects <input id="vol-sfx" type="range" min="0" max="100" /></label>
-      <div class="sub">Esc opens &amp; closes</div>
+      <label>Ambience <input id="vol-ambient" type="range" min="0" max="100" /></label>
+      <div class="sub">Esc settings · H controls</div>
     </div>
     <div id="gearbtn" class="hud" title="Settings (Esc)">⚙</div>
+    <div id="frontdoor" class="hud">
+      <h1>FIRELANCE</h1>
+      <div class="primer">
+        Ride with your squad. <b>Earn gold</b> from kills and bounties — it piles up in your keep.
+        <br />
+        <b>Bank it</b> at a town before someone takes your head for it.
+        <br />
+        Smash enemy keeps to <b>spill their vaults</b>. Most gold banked when the horn sounds wins.
+      </div>
+      <div id="doorcards"></div>
+      <input id="doorname" maxlength="16" spellcheck="false" />
+      <button id="doorplay">RIDE</button>
+      <div id="doorhelp">controls (H)</div>
+    </div>
+    <div id="helpov" class="hud">
+      <div class="box">
+        <div class="hdr">Controls</div>
+        <div><span class="key">WASD</span>move <span class="sub">· mouse aims</span></div>
+        <div>
+          <span class="key">LMB</span>attack <span class="key">RMB</span>block
+          <span class="sub">(Fighter)</span>
+        </div>
+        <div>
+          <span class="key">Space</span>dash <span class="sub">— dodge through arrows</span>
+        </div>
+        <div>
+          <span class="key">E</span>interact
+          <span class="sub">— claim site · load gold · bank at towns</span>
+        </div>
+        <div>
+          <span class="key">F</span>firebomb
+          <span class="sub">— structures burn, restock at your keep</span>
+        </div>
+        <div>
+          <span class="key">B</span>wall <span class="sub">— on a damaged own piece: repair</span>
+        </div>
+        <div>
+          <span class="key">G</span>gate <span class="key">T</span>tower
+          <span class="key">V</span>trap <span class="sub">(Engineer)</span>
+        </div>
+        <div><span class="key">1/2/3</span>class at next respawn</div>
+        <div>
+          <span class="key">H</span>this help <span class="key">Esc</span>settings
+          <span class="key">F3</span>netgraph
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -29,7 +29,7 @@ import { canSeePoint } from '@shared/sim/vision';
 import { audioStats, sfx, unlockAudio } from './audio/sfx';
 import { FX } from './fx/config';
 import { InputState } from './input/input';
-import { Connection } from './net/connection';
+import { Connection, hasResumeToken } from './net/connection';
 import { Interpolation } from './net/interpolation';
 import { Prediction } from './net/prediction';
 import { BombLayer } from './render/bombs';
@@ -45,6 +45,7 @@ import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
 import { Scene, SQUAD_COLORS } from './render/scene';
 import { StructureLayer } from './render/structures';
+import { initFrontDoor } from './ui/frontdoor';
 import { initSettings } from './ui/settings';
 import { Overlay, showBanner } from './debug/overlay';
 
@@ -123,6 +124,8 @@ interface GameState {
   lastOwnTier: number;
   /** Deposit channel quarter last ticked (-1 = idle); drives rising plucks. */
   lastBankQuarter: number;
+  /** Water tile centers (M6 s4) — the shimmer emitter samples these. */
+  waterTiles: Array<{ x: number; y: number }>;
 }
 
 const roster = new Map<number, RosterEntry>();
@@ -708,6 +711,17 @@ async function setupScene(
     alarmUntilMs: 0,
     lastOwnTier: -1,
     lastBankQuarter: -1,
+    waterTiles: (() => {
+      // Water = unwalkable but see-through (rivers), scanned once per map.
+      const tiles: Array<{ x: number; y: number }> = [];
+      for (let ty = 0; ty < map.height; ty++) {
+        for (let tx = 0; tx < map.width; tx++) {
+          const i = ty * map.width + tx;
+          if (map.walk[i] === 1 && map.vision[i] === 0) tiles.push({ x: tx + 0.5, y: ty + 0.5 });
+        }
+      }
+      return tiles;
+    })(),
   };
   for (const [squad, info] of keepInfo) game.keeps.update(squad, info.x, info.y, info.hp);
   updateExileStrip();
@@ -936,6 +950,30 @@ function frame(now: number): void {
     }
     game.lastOwnTier = tier;
   }
+  // ---- world life (M6 s4): the map moves a little even when nobody does.
+  scene.forestBreath(
+    now,
+    FX.world.forestBreathBase,
+    FX.world.forestBreathAmp,
+    FX.world.forestBreathPeriodMs,
+  );
+  if (ownPos && game.waterTiles.length > 0 && Math.random() < dtMs / FX.world.waterGlintEveryMs) {
+    // Rejection-sample a few tries for water near the player; rivers are
+    // sparse enough that misses are the common case far from them.
+    for (let tries = 0; tries < 6; tries++) {
+      const t = game.waterTiles[Math.floor(Math.random() * game.waterTiles.length)]!;
+      if (Math.hypot(t.x - ownPos.x, t.y - ownPos.y) < FX.world.waterGlintRange) {
+        game.particles.emit(t.x, t.y, FX.emit.waterGlint);
+        break;
+      }
+    }
+  }
+  for (const t of game.map.towns) {
+    if (Math.random() < dtMs / FX.world.townGlintEveryMs) {
+      game.particles.emit(t.x, t.y, FX.emit.carryGlint);
+    }
+  }
+
   // The deposit channel plucks a rising note at each quarter — progress you
   // can hear while your eyes stay on the treeline.
   const bankTicks = latestYou?.bankTicks ?? 0;
@@ -1294,4 +1332,19 @@ window.__fl = {
 };
 
 initSettings();
-conn.connect();
+// The front door (M6 s4): first-time humans pick a class and a name; any
+// ?name param or live resume token skips it — automation, verify configs,
+// and F5 rejoins never see a menu.
+initFrontDoor({
+  skip: params.get('name') !== null || hasResumeToken(),
+  defaultName: name,
+  defaultCls:
+    clsParam === 'fighter' || clsParam === 'ranger' || clsParam === 'engineer'
+      ? clsParam
+      : undefined,
+  onPlay: (chosenName, chosenCls) => {
+    conn.setIdentity(chosenName, chosenCls);
+    unlockAudio(); // PLAY is a real gesture — audio and the wind start here
+    conn.connect();
+  },
+});

@@ -8,6 +8,7 @@ import type { AudioChannel } from '../audio/mixer';
 const SLIDERS: Array<{ ch: AudioChannel; id: string }> = [
   { ch: 'master', id: 'vol-master' },
   { ch: 'sfx', id: 'vol-sfx' },
+  { ch: 'ambient', id: 'vol-ambient' }, // the s4 wind bed
 ];
 
 export function initSettings(): void {

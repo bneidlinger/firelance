@@ -66,22 +66,32 @@ export class Scene {
 
   buildMap(map: MapData, interactRadius = 2.5): void {
     this.mapLayer.removeChildren();
+    this.forestG = null;
     const g = new Graphics();
-    // Ground with a subtle checker so motion is readable even in open fields.
+    // Ground: the readability checker plus a deterministic per-tile micro-tint
+    // (M6 s4) — hashed from coords, so it's identical every visit and NEVER
+    // touches world.rng. Fields stop looking like graph paper.
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const base = (x + y) % 2 === 0 ? COLORS.ground : COLORS.groundAlt;
-        g.rect(x * TILE, y * TILE, TILE, TILE).fill(base);
+        const h = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 5;
+        const tinted = h === 0 ? base + 0x030402 : h === 1 ? base - 0x020302 : base;
+        g.rect(x * TILE, y * TILE, TILE, TILE).fill(tinted);
       }
     }
+    const forestG = new Graphics();
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const i = y * map.width + x;
         let color: number | null = null;
         if (map.vision[i] === 1) color = COLORS.wall;
         else if (map.walk[i] === 1) color = COLORS.water;
-        else if (map.forest[i] === 1) color = COLORS.forest;
         if (color !== null) g.rect(x * TILE, y * TILE, TILE, TILE).fill(color);
+        // Forests draw on their OWN layer so the canopy can breathe (a slow
+        // whole-layer alpha sine — zero per-tile redraws).
+        if (color === null && map.forest[i] === 1) {
+          forestG.rect(x * TILE, y * TILE, TILE, TILE).fill(COLORS.forest);
+        }
       }
     }
     // Bridges: walkable tiles surrounded by water read as planks.
@@ -101,6 +111,8 @@ export class Scene {
       }
     }
     this.mapLayer.addChild(g);
+    this.mapLayer.addChild(forestG);
+    this.forestG = forestG;
 
     // POI markers. Rings on towns trace the ACTUAL interact radius — "stand
     // inside the gold circle" is the whole banking tutorial. LIVE squad keeps
@@ -127,6 +139,15 @@ export class Scene {
         .stroke({ width: 2, color: SQUAD_COLORS[squad]!, alpha: 0.7 });
     });
     this.mapLayer.addChild(poi);
+  }
+
+  private forestG: Graphics | null = null;
+
+  /** The canopy breathes (M6 s4); call per frame. */
+  forestBreath(nowMs: number, base: number, amp: number, periodMs: number): void {
+    if (this.forestG) {
+      this.forestG.alpha = base + amp * Math.sin((nowMs / periodMs) * Math.PI * 2);
+    }
   }
 
   follow(x: number, y: number): void {

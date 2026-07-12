@@ -84,10 +84,47 @@ export function audioStats(): { played: number; throttled: number; culled: numbe
   return { ...stats };
 }
 
-/** Call once from a user gesture (browsers gate audio until then). */
+/** Call once from a user gesture (browsers gate audio until then). Also
+ *  starts the ambient bed — it should breathe from the first real gesture. */
 export function unlockAudio(): void {
   const c = ensureCtx();
-  if (c && c.state === 'suspended') void c.resume();
+  if (!c) return;
+  if (c.state === 'suspended') {
+    void c.resume().then(() => startAmbient());
+  } else {
+    startAmbient();
+  }
+}
+
+let ambientStarted = false;
+
+/** The wind (M6 s4): looped noise through a slow-gusting lowpass, on the
+ *  ambient bus (its own volume slider). Quiet by design — a bed, not a track. */
+export function startAmbient(): void {
+  const c = ensureCtx();
+  if (!c || !ambientBus || ambientStarted || c.state !== 'running') return;
+  ambientStarted = true;
+  const src = c.createBufferSource();
+  src.buffer = noiseBuf!;
+  src.loop = true;
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 320;
+  lp.Q.value = 0.6;
+  const g = c.createGain();
+  g.gain.value = 0.05;
+  // Gusts: a sub-Hz LFO wobbles the cutoff — wind, not a hairdryer.
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 0.07;
+  const lfoGain = c.createGain();
+  lfoGain.gain.value = 140;
+  lfo.connect(lfoGain);
+  lfoGain.connect(lp.frequency);
+  src.connect(lp);
+  lp.connect(g);
+  g.connect(ambientBus);
+  src.start();
+  lfo.start();
 }
 
 function play(notes: Note[], volume = 1, pan = 0, pitchMul = 1): void {
