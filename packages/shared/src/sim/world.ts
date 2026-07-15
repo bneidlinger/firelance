@@ -4,6 +4,7 @@ import type { MapData } from '../map/types';
 import type { RngState } from '../math/rng';
 import { createRng } from '../math/rng';
 import { distSq } from '../math/vec2';
+import { placeProps } from './systems/props';
 
 export type PlayerId = number;
 
@@ -55,7 +56,14 @@ export const STRUCT_WALL = 0;
 export const STRUCT_GATE = 1;
 export const STRUCT_TOWER = 2;
 export const STRUCT_TRAP = 3;
-export type StructureKind = 0 | 1 | 2 | 3;
+export const STRUCT_TREE = 4;
+export const STRUCT_HUT = 5;
+
+/** Owner id for countryside props: nobody's squad, everybody's target. Never
+ *  matches an attacker squad (bombs/melee spare own-squad structures) and
+ *  never reads as "own" in fog filtering — both fall out of the comparison. */
+export const NEUTRAL_SQUAD = -1;
+export type StructureKind = 0 | 1 | 2 | 3 | 4 | 5;
 
 export const IDLE_INPUT: InputCmd = Object.freeze({ mx: 0, my: 0, ax: 1, ay: 0, b: 0 });
 
@@ -172,6 +180,10 @@ export interface Projectile {
   radius: number;
   ticksLeft: number;
   bornTick: number;
+  /** Damage multiplier vs countryside props, snapshotted at fire time from
+   *  the shooter's class (arrow vs crossbow bolt) — the shooter may die or
+   *  swap class mid-flight, the projectile keeps its nature. */
+  propFactor: number;
 }
 
 export interface SquadState {
@@ -290,6 +302,10 @@ export function assignKeeps(map: MapData, squads: number): Array<{ x: number; y:
   return out;
 }
 
+// (value import at the bottom of the dependency chain: props.ts pulls only
+// types and kind constants back from this module, and placeProps runs at
+// call time — the cycle is initialization-safe by construction.)
+// eslint-disable-next-line import/no-cycle
 export function createWorld(seed: number, cfg: GameConfig, map: MapData): World {
   const keeps = assignKeeps(map, cfg.match.squads);
   const squads: SquadState[] = [];
@@ -310,7 +326,7 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
       supplyMinted: cfg.build.supplyStart,
     });
   }
-  return {
+  const world: World = {
     tick: 0,
     rng: createRng(seed),
     nextId: 1,
@@ -325,6 +341,11 @@ export function createWorld(seed: number, cfg: GameConfig, map: MapData): World 
     structures: new Map(),
     squads,
   };
+  // Countryside props draw from a FORKED stream off the same seed — world.rng
+  // never moves, and replays/restarts re-derive the identical countryside by
+  // re-running this very function.
+  placeProps(world, cfg, map, seed);
+  return world;
 }
 
 /** Ring of offsets around a spawn point so squadmates never stack exactly. */
@@ -459,6 +480,7 @@ export function serializeWorld(world: World): string {
     r: pr.radius,
     tl: pr.ticksLeft,
     bt: pr.bornTick,
+    pf: pr.propFactor,
   }));
   const sacks = [...world.sacks.values()].map((s) => ({
     id: s.id,

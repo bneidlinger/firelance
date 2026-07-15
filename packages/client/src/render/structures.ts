@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import type { StructSnap } from '@shared/net/messages';
-import { STRUCT_GATE, STRUCT_TOWER, STRUCT_TRAP } from '@shared/sim/world';
+import { STRUCT_GATE, STRUCT_HUT, STRUCT_TOWER, STRUCT_TRAP, STRUCT_TREE } from '@shared/sim/world';
 import { SQUAD_COLORS, TILE } from './scene';
 
 // Structures (M4): squad-colored tiles. Walls read as stone, gates as a
@@ -117,6 +117,36 @@ export class StructureLayer {
         }
       }
       return g; // no shared crack overlay — a trap is 1hp, whole or gone
+    } else if (s.k === STRUCT_TREE) {
+      // A lone oak: shadow, trunk, crown. The crown thins as it takes damage —
+      // the chopping is visible from across a field. Nobody owns an oak, so
+      // no squad edge and no crack overlay.
+      const c = TILE / 2;
+      g.ellipse(c, c + TILE * 0.18, TILE * 0.34, TILE * 0.2).fill({
+        color: 0x000000,
+        alpha: 0.18,
+      });
+      g.circle(c, c, TILE * 0.16).fill(0x4a3a26);
+      const crownR = TILE * (0.26 + 0.26 * frac);
+      g.circle(c - TILE * 0.1, c - TILE * 0.08, crownR).fill({ color: 0x2b4426, alpha: 0.95 });
+      g.circle(c + TILE * 0.12, c + TILE * 0.04, crownR * 0.8).fill({
+        color: 0x2b4426,
+        alpha: 0.95,
+      });
+      g.circle(c + TILE * 0.02, c - TILE * 0.14, crownR * 0.7).fill({
+        color: 0x35512d,
+        alpha: 0.9,
+      });
+      return g;
+    } else if (s.k === STRUCT_HUT) {
+      // A cottage: mud walls under a thatch roof with a ridge line. Shares the
+      // crack overlay — "one more bomb" reads on architecture of any owner.
+      g.rect(1.5, 2, TILE - 3, TILE - 4).fill({ color: 0x6b5233, alpha: 0.95 });
+      g.rect(1.5, 2, TILE - 3, TILE - 4).stroke({ width: 1.2, color: 0x3c2f1e, alpha: 0.9 });
+      g.rect(0.5, TILE * 0.3, TILE - 1, TILE * 0.42).fill({ color: 0x8a7550, alpha: 0.95 });
+      g.moveTo(1, TILE / 2)
+        .lineTo(TILE - 1, TILE / 2)
+        .stroke({ width: 1.4, color: 0x5d4d33, alpha: 0.9 });
     } else if (s.k === STRUCT_TOWER) {
       // A lookout: round platform + cross braces; a dot for the sentry.
       g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).fill({ color: base, alpha: fillAlpha });

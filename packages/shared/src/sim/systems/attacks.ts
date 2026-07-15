@@ -3,7 +3,16 @@ import { getKit, secToTicks } from '../../config';
 import type { MapData } from '../../map/types';
 import type { SimEvent } from '../events';
 import type { Player, World } from '../world';
-import { ATK_ACTIVE, ATK_IDLE, ATK_RECOVERY, ATK_WINDUP, BTN_FIRE, PHASE_LIVE } from '../world';
+import {
+  ATK_ACTIVE,
+  ATK_IDLE,
+  ATK_RECOVERY,
+  ATK_WINDUP,
+  BTN_FIRE,
+  PHASE_LIVE,
+  STRUCT_HUT,
+  STRUCT_TREE,
+} from '../world';
 import { tileRayClear } from '../vision';
 import { applyDamage } from './combat';
 import { damageKeep, keepsInRange } from './keep';
@@ -156,7 +165,15 @@ function meleeHitTest(
     }
     if (!tileRayClear(map, attacker.x, attacker.y, cx, cy)) continue;
     attacker.atkHitIds.push(pseudoId);
-    damageStructure(world, s, cfg.build.meleeChip, events);
+    // The axe-vs-architecture table: trees chop fast, huts demolish slowly,
+    // player-built pieces keep the flat desperation chip.
+    const chip =
+      s.kind === STRUCT_TREE
+        ? cfg.props.treeMelee
+        : s.kind === STRUCT_HUT
+          ? cfg.props.hutMelee
+          : cfg.build.meleeChip;
+    damageStructure(world, s, chip, events);
   }
 }
 
@@ -178,6 +195,9 @@ function spawnArrow(world: World, cfg: GameConfig, shooter: Player, events: SimE
     radius: bow.radius,
     ticksLeft: ttl,
     bornTick: world.tick,
+    // Arrow vs crossbow bolt, decided at fire time: what this projectile does
+    // to countryside props if it dies in one (projectiles.ts).
+    propFactor: shooter.cls === 'engineer' ? cfg.props.boltFactor : cfg.props.arrowFactor,
   };
   world.projectiles.set(proj.id, proj);
   events.push({

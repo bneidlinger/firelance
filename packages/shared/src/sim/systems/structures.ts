@@ -193,7 +193,7 @@ export function canBuildStructAt(
 }
 
 /** Live structure on this exact tile, if any. */
-function structureAt(world: World, tx: number, ty: number): Structure | null {
+export function structureAt(world: World, tx: number, ty: number): Structure | null {
   for (const s of world.structures.values()) {
     if (s.hp > 0 && s.tx === tx && s.ty === ty) return s;
   }

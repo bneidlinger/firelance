@@ -3,7 +3,9 @@ import type { MapData } from '../../map/types';
 import { isVisionBlocked } from '../../map/types';
 import type { SimEvent } from '../events';
 import type { Player, World } from '../world';
+import { STRUCT_HUT, STRUCT_TREE } from '../world';
 import { applyDamage } from './combat';
+import { damageStructure, structureAt } from './structures';
 
 // Projectile flight: swept segment per tick so fast arrows can't tunnel
 // through a player between ticks. Arrows are stopped by vision-blocking tiles
@@ -28,9 +30,9 @@ export function stepProjectiles(
     const y1 = proj.y + proj.dy * proj.speed * dt;
 
     // Earliest collision along the segment: walls (terrain + structures) vs players.
-    const tWall = wallHitParam(map, proj.x, proj.y, x1, y1, occ);
-    let tBest = tWall ?? 2;
-    let hitWall = tWall !== null;
+    const wall = wallHitParam(map, proj.x, proj.y, x1, y1, occ);
+    let tBest = wall?.t ?? 2;
+    let hitWall = wall !== null;
     let victim: Player | null = null;
 
     for (const p of world.players.values()) {
@@ -68,6 +70,14 @@ export function stepProjectiles(
       if (victim) {
         const owner = world.players.get(proj.owner);
         if (owner) applyDamage(world, cfg, owner, victim, proj.damage, 'arrow', events);
+      } else if (wall) {
+        // Died in a wall tile. If a countryside prop stands there, it takes
+        // weapon-typed damage (arrows stick, bolts bite). Player-built pieces
+        // stay arrow-proof — bombs and blades are the siege tools.
+        const s = structureAt(world, wall.tx, wall.ty);
+        if (s && (s.kind === STRUCT_TREE || s.kind === STRUCT_HUT)) {
+          damageStructure(world, s, Math.round(proj.damage * proj.propFactor), events);
+        }
       }
       continue;
     }
@@ -90,12 +100,20 @@ export function stepProjectiles(
 }
 
 /**
- * Param t ∈ [0,1] at which the segment enters a vision-blocking tile, or null.
- * Amanatides–Woo traversal, arithmetic only.
+ * Earliest point at which the segment enters a vision-blocking tile — param
+ * t ∈ [0,1] plus WHICH tile, so the caller can ask what was standing there
+ * (props take ranged damage; walls just stop the arrow). Amanatides–Woo
+ * traversal, arithmetic only.
  */
 function vBlocked(map: MapData, occ: ReadonlySet<number> | null, tx: number, ty: number): boolean {
   if (isVisionBlocked(map, tx, ty)) return true;
   return occ !== null && occ.has(ty * map.width + tx);
+}
+
+interface WallHit {
+  t: number;
+  tx: number;
+  ty: number;
 }
 
 function wallHitParam(
@@ -105,10 +123,10 @@ function wallHitParam(
   x1: number,
   y1: number,
   occ: ReadonlySet<number> | null,
-): number | null {
+): WallHit | null {
   let tx = Math.floor(x0);
   let ty = Math.floor(y0);
-  if (vBlocked(map, occ, tx, ty)) return 0;
+  if (vBlocked(map, occ, tx, ty)) return { t: 0, tx, ty };
   const txEnd = Math.floor(x1);
   const tyEnd = Math.floor(y1);
   if (tx === txEnd && ty === tyEnd) return null;
@@ -134,7 +152,7 @@ function wallHitParam(
       ty += stepY;
     }
     if (t > 1) return null;
-    if (vBlocked(map, occ, tx, ty)) return t;
+    if (vBlocked(map, occ, tx, ty)) return { t, tx, ty };
     if (tx === txEnd && ty === tyEnd) return null;
   }
   return null;

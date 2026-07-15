@@ -7,7 +7,7 @@ import type { ClassId } from '../config';
 import type { MapVariant } from '../map/variant';
 import type { SimEvent } from '../sim/events';
 
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 // ---------------------------------------------------------------- client → server
 
@@ -138,9 +138,10 @@ export interface SackSnap {
  */
 export interface StructSnap {
   i: number;
-  /** Kind: 0 wall, 1 gate, 2 tower, 3 trap (own squad only). */
+  /** Kind: 0 wall, 1 gate, 2 tower, 3 trap (own squad only), 4 tree, 5 hut. */
   k: number;
-  /** Owning squad — colors it; not secret once seen. */
+  /** Owning squad — colors it; not secret once seen. −1 = neutral countryside
+   *  props (trees/huts): nobody's own, so the eyes-on rule covers everyone. */
   s: number;
   /** Grid tile (integers); the segment fills [tx,tx+1]×[ty,ty+1]. */
   tx: number;

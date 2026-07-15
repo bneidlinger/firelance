@@ -13,6 +13,7 @@ export type {
   BuildConfig,
   StructKindConfig,
   TrapConfig,
+  PropsConfig,
 } from './types';
 export { getKit, secToTicks } from './types';
 export { defaultConfig } from './default';
@@ -46,6 +47,9 @@ export function defineConfig(overrides: DeepPartial<GameConfig>): GameConfig {
 export const prototypeConfig: GameConfig = defineConfig({
   name: 'prototype',
   match: { durationSec: 8 * 60, placementSec: 20, countdownSec: 5 },
+  // The countryside lives where the humans play (base config keeps it off so
+  // unit-test arenas stay bare; pinned arcs spread it off explicitly).
+  props: { enabled: true },
 });
 
 /** Tiny preset for CI smoke matches (2–3 min game time, instant start).
@@ -56,8 +60,10 @@ export const smokeConfig: GameConfig = defineConfig({
   // Fast respawns keep combat flowing in compressed matches.
   player: { respawnSec: 4 },
   variation: { enabled: false },
-  // Smoke is the pure combat-sanity arena — no gossip steering the bots.
+  // Smoke is the pure combat-sanity arena — no gossip steering the bots,
+  // no countryside in the sightlines.
   rumors: { enabled: false },
+  props: { enabled: false },
 });
 
 /** Browser-verification preset: placement long enough for a scripted claim
@@ -67,6 +73,8 @@ export const verifyConfig: GameConfig = defineConfig({
   name: 'verify',
   match: { durationSec: 8 * 60, placementSec: 30, countdownSec: 5 },
   variation: { enabled: false },
+  // Automation scripts walk known routes — no semi-random obstacles.
+  props: { enabled: false },
 });
 
 /** M5 browser-verification preset: variation ON with a full match cycle
@@ -78,6 +86,7 @@ export const verify5Config: GameConfig = defineConfig({
   name: 'verify5',
   match: { durationSec: 90, placementSec: 15, countdownSec: 3, restartSec: 8 },
   rumors: { intervalSec: 8, richKeepIntervalSec: 8, richKeepGold: 200, carrierGold: 100 },
+  props: { enabled: true },
 });
 
 const presets: Record<string, GameConfig> = {

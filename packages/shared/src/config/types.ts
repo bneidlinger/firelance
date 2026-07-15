@@ -284,6 +284,39 @@ export interface GameConfig {
     /** Shuffle which map spawn corner each squad musters at. */
     shuffleSpawns: boolean;
   };
+
+  /** Neutral countryside props (trees/huts): placed once at world creation
+   *  from a forked seed stream, destructible by everyone, owned by nobody
+   *  (squad −1). They ride the structure machinery end to end — occupancy,
+   *  vision, fog, damage — see sim/systems/props.ts for placement rules. */
+  props: PropsConfig;
+}
+
+export interface PropsConfig {
+  /** Master switch (pinned bot-arc tests and CI arenas turn it off). */
+  enabled: boolean;
+  /** Placement attempts: tree clumps (1–3 trees each) and hut hamlets
+   *  (2–4 huts). Exclusion rules may drop some — deterministically. */
+  treeClumps: number;
+  hutHamlets: number;
+  /** Hit points per kind. */
+  treeHp: number;
+  hutHp: number;
+  /** Melee damage per landed swing vs each kind — the axe-vs-architecture
+   *  table: trees chop fast, huts are slow demolition. */
+  treeMelee: number;
+  hutMelee: number;
+  /** Ranged damage vs props = projectile damage × this, snapshotted onto the
+   *  projectile at fire time by shooter class: arrows stick in uselessly,
+   *  crossbow bolts bite (the Engineer's siege identity extends). */
+  arrowFactor: number;
+  boltFactor: number;
+  /** Placement exclusion radii (units) around gameplay landmarks: keep SITES
+   *  (all of them — they're rebuild spots), towns, muster spawns, bridges. */
+  keepClear: number;
+  townClear: number;
+  spawnClear: number;
+  bridgeClear: number;
 }
 
 export type GameConfigOverrides = DeepPartial<GameConfig>;

@@ -10,6 +10,8 @@ import {
   PHASE_LIVE,
   PHASE_PLACEMENT,
   SPAWN_OFFSETS,
+  STRUCT_HUT,
+  STRUCT_TREE,
 } from '../world';
 import { plantKeep, siteClaimed } from './claims';
 
@@ -101,7 +103,14 @@ function goLive(world: World, cfg: GameConfig): void {
   world.projectiles.clear();
   world.sacks.clear();
   world.bombs.clear();
-  world.structures.clear();
+  // Sweep player-buildable kinds only (belt-and-braces vs warmup pollution —
+  // builds are phase-gated anyway). The COUNTRYSIDE was born with the world
+  // and must survive going live: this exact line silently deleted every tree
+  // and hut in the first live playtest while all 307 unit tests stayed green
+  // (none of them crossed goLive with props standing).
+  for (const [id, s] of world.structures) {
+    if (s.kind !== STRUCT_TREE && s.kind !== STRUCT_HUT) world.structures.delete(id);
+  }
   world.goldMinted = 0;
   for (const s of world.squads) {
     s.keepGold = 0;

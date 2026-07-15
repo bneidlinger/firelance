@@ -177,4 +177,28 @@ export const defaultConfig: GameConfig = {
     townsActive: 2,
     shuffleSpawns: true,
   },
+  // The lived-in Vale: neutral trees and huts, drawn fresh each match from a
+  // forked seed stream. A sword fells a tree in 3 swings (60/20); a hut is a
+  // slow demolition (240 hp, 8/swing, or 2 firebombs). Arrows mostly stick
+  // (12 × 0.25 = 3), bolts bite (20 × 0.6 = 12) — weapon choice matters
+  // against the countryside, exactly as it does against forts.
+  // DISABLED in the base config: placement runs inside createWorld, and unit
+  // tests build controlled worlds on bare arenas — a surprise oak in a melee
+  // test is noise. Match-scale presets (prototype, verify5 — everywhere
+  // humans play) switch it on; props.test.ts covers it explicitly.
+  props: {
+    enabled: false,
+    treeClumps: 26,
+    hutHamlets: 5,
+    treeHp: 60,
+    hutHp: 240,
+    treeMelee: 20,
+    hutMelee: 8,
+    arrowFactor: 0.25,
+    boltFactor: 0.6,
+    keepClear: 7,
+    townClear: 4,
+    spawnClear: 3,
+    bridgeClear: 2,
+  },
 };

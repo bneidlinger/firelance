@@ -19,6 +19,8 @@ const cfg: GameConfig = {
   ...getConfigPreset('prototype'),
   variation: { ...getConfigPreset('prototype').variation, enabled: false },
   rumors: { ...getConfigPreset('prototype').rumors, enabled: false },
+  // Props off, same policy as variation/rumors: pinned arcs run bare ground.
+  props: { ...getConfigPreset('prototype').props, enabled: false },
 };
 
 describe('full siege arc (prototype config, pinned seed)', () => {
