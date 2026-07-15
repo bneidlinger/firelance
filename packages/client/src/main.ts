@@ -882,7 +882,8 @@ function frame(now: number): void {
   };
   const ghostList = game.ghosts.update(interp.structures, game.ownSquad, visibleTile);
   game.structures.sync(interp.structures, game.ownSquad, ghostList);
-  if (ownPos) scene.follow(ownPos.x, ownPos.y);
+  if (peekAt) scene.follow(peekAt.x, peekAt.y);
+  else if (ownPos) scene.follow(ownPos.x, ownPos.y);
 
   // ---- contextual banking prompt (the "how do I bank" tutorial, in place)
   updatePrompt(ownPos);
@@ -1252,6 +1253,8 @@ declare global {
       shotChunk(i: number, size?: number): string | null;
       charSheet(mode?: 'squads' | 'poses'): boolean;
       charSheetClear(): void;
+      peek(x: number, y: number): boolean;
+      peekClear(): void;
     };
   }
 }
@@ -1264,6 +1267,24 @@ declare global {
 // explicit renderer.render.)
 let lastShot = '';
 let sheet: EntityLayer | null = null;
+/** Camera-peek target for art verification: frame() follows this instead of
+ *  the player while set. Render-only — the fog toggle just hides the veil
+ *  sprite over terrain the client already knows; filtered entities were never
+ *  in the scene graph to reveal. */
+let peekAt: { x: number; y: number } | null = null;
+
+function flPeek(x: number, y: number): boolean {
+  if (!game || !scene) return false;
+  peekAt = { x, y };
+  scene.fogLayer.visible = false;
+  flPump(1);
+  return true;
+}
+
+function flPeekClear(): void {
+  peekAt = null;
+  if (scene) scene.fogLayer.visible = true;
+}
 
 function flPump(n = 1): boolean {
   if (!game || !scene) return false;
@@ -1389,6 +1410,8 @@ window.__fl = {
     sheet?.clear();
     sheet = null;
   },
+  peek: flPeek,
+  peekClear: flPeekClear,
   stats: () => ({
     rttMs: conn.rttMs,
     estTick: conn.estServerTick(performance.now()),
