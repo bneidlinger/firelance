@@ -9,8 +9,11 @@ import { runInProcessMatch } from '../src/harness';
 // beat of that arc, this test names it. (Turbo: ~8 sim-minutes in a few
 // wall-seconds.) Re-pinned 7 → 4 for M4 s2 (placement shifts the timeline),
 // 4 → 20 for M4 s5 (claim/build/bump behaviors shift every bot's rng stream;
-// the rebuild beat stays ~30% seed-luck — 16/17/19/20/21/25/26/28/29 all
-// pass, 20 has a rich arc). Expect to re-pin on any bot-behavior change.
+// the rebuild beat stays ~30% seed-luck). 20 → 17 for the Lived-In Vale
+// interlude (walls/gates joined the ranged-damage table at 240 hp — stray
+// siege arrows now wear architecture, which shifts every fight's timing;
+// 4/16/17/19/21/25/26/28/29 pass, 17 has the richest arc: 5 destructions,
+// 2 rebuilds, 3 eliminations). Expect to re-pin on any bot-behavior change.
 //
 // Variation and rumors forced OFF: this pins a bot-behavior ARC on the
 // authored layout with no gossip steering anyone. M5's map draw and rumor
@@ -24,11 +27,11 @@ const cfg: GameConfig = {
 };
 
 describe('full siege arc (prototype config, pinned seed)', () => {
-  it('seed 20: keeps fall, a squad rebuilds, eliminations end the match early', async () => {
+  it('seed 17: keeps fall, a squad rebuilds, eliminations end the match early', async () => {
     const r = await runInProcessMatch({
       bots: 12,
       simSeconds: 505,
-      seed: 20,
+      seed: 17,
       cfg,
     });
 

@@ -3,7 +3,7 @@ import type { MapData } from '../../map/types';
 import { isVisionBlocked } from '../../map/types';
 import type { SimEvent } from '../events';
 import type { Player, World } from '../world';
-import { STRUCT_HUT, STRUCT_TREE } from '../world';
+import { STRUCT_TOWER } from '../world';
 import { applyDamage } from './combat';
 import { damageStructure, structureAt } from './structures';
 
@@ -71,11 +71,14 @@ export function stepProjectiles(
         const owner = world.players.get(proj.owner);
         if (owner) applyDamage(world, cfg, owner, victim, proj.damage, 'arrow', events);
       } else if (wall) {
-        // Died in a wall tile. If a countryside prop stands there, it takes
-        // weapon-typed damage (arrows stick, bolts bite). Player-built pieces
-        // stay arrow-proof — bombs and blades are the siege tools.
+        // Died in a structure tile: architecture takes weapon-typed damage
+        // (arrows stick and harass, bolts bite — the same table for a hut, a
+        // wall, or a gate; Brandon's call 2026-07-14). The arrow still STOPS
+        // here either way — cover works, it just wears. Towers stay
+        // arrow-proof (information, not architecture), traps are never in
+        // occupancy so a projectile can't die on one.
         const s = structureAt(world, wall.tx, wall.ty);
-        if (s && (s.kind === STRUCT_TREE || s.kind === STRUCT_HUT)) {
+        if (s && s.kind !== STRUCT_TOWER) {
           damageStructure(world, s, Math.round(proj.damage * proj.propFactor), events);
         }
       }

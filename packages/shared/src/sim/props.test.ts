@@ -245,7 +245,7 @@ describe('props damage table', () => {
     expect(swings).toBe(Math.ceil(CFG.props.treeHp / CFG.props.treeMelee)); // 3
   });
 
-  it('arrows stick, bolts bite — and walls stay arrow-proof', () => {
+  it('arrows stick, bolts bite — architecture shares the table, towers do not', () => {
     const shoot = (cls: 'ranger' | 'engineer', target: 'hut' | 'wall'): number => {
       const w = liveWorld();
       const shooter = spawnPlayer(w, CFG, 0, 'shot', false, cls, 5.5, 4.5);
@@ -279,7 +279,8 @@ describe('props damage table', () => {
     const xbow = CFG.classes.engineer.bow!;
     expect(shoot('ranger', 'hut')).toBe(Math.round(bow.damage * CFG.props.arrowFactor));
     expect(shoot('engineer', 'hut')).toBe(Math.round(xbow.damage * CFG.props.boltFactor));
-    expect(shoot('ranger', 'wall')).toBe(0); // built pieces keep their arrow immunity
+    // Walls and gates joined the table (Brandon's call): same weapon typing.
+    expect(shoot('ranger', 'wall')).toBe(Math.round(bow.damage * CFG.props.arrowFactor));
   });
 
   it('neutral props are nobody\'s own — every squad\'s bombs and blades connect', () => {

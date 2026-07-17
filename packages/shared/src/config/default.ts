@@ -126,11 +126,15 @@ export const defaultConfig: GameConfig = {
     reach: 2,
     cooldownSec: 1.5,
     meleeChip: 8,
-    wall: { cost: 40, hp: 200, maxCount: 8 },
+    // 240 hp matches the hut — one number for "architecture" — and keeps the
+    // M3 bomb math intact (two firebombs = 300 ≥ 240 still levels a piece).
+    // Walls/gates take weapon-typed ranged damage like all architecture since
+    // the props interlude: arrows harass (×0.25), bolts slow-siege (×0.6).
+    wall: { cost: 40, hp: 240, maxCount: 8 },
     // Engineer-only. Gate: a door for your squad's bodies, a wall for everyone
     // else's (and for ALL vision/arrows). Tower: a static extra pair of eyes —
     // player vision rules from a fixed post, NO auto-attack (design doc).
-    gate: { cost: 60, hp: 200, maxCount: 2 },
+    gate: { cost: 60, hp: 240, maxCount: 2 },
     tower: { cost: 80, hp: 150, maxCount: 2 },
     // Trap: enemies never see it (fog rule, not hp); hp 1 means ANY chip or
     // bomb splash clears it — bombing suspicious ground is the counterplay.
