@@ -110,6 +110,9 @@ interface GameState {
    *  hp. Fed by welcome.keeps + keepClaimed/keepRebuilt events — the client
    *  derives nothing (placement made local derivation wrong). */
   keepInfo: Map<number, { x: number; y: number; hp: number }>;
+  /** Public bounty per player (score msg ~2Hz; own entry from every snap) —
+   *  feeds the overhead writ-tags. Bounty is open information by design. */
+  bounties: Map<number, number>;
   /** Own squad's vault detail from the last score (squad-private fields). */
   ownGold: { bk: number; g: number; wd: number; rb: number };
   ownEliminated: boolean;
@@ -271,6 +274,7 @@ function handleServer(msg: ServerMsg): void {
       if (game) {
         game.phase = msg.phase;
         game.phaseEndsTick = msg.phaseEndsTick;
+        for (const p of msg.players) game.bounties.set(p.id, p.b);
         for (const s of msg.squads) {
           const info = game.keepInfo.get(s.id);
           if (info) {
@@ -306,6 +310,9 @@ function onYou(you: YouSnap): void {
   if (!game) return;
   latestYou = you;
   latestYouHp = you.hp;
+  // Own writ-tag tracks the snapshot, not the 2Hz score — it moves the same
+  // frame the tier-up ceremony does.
+  game.bounties.set(game.ownId, you.bounty);
   // Fire-gate mirror: adopt the (slightly stale) server cooldown unless our
   // local prediction is already stricter — never re-arm early.
   if (you.atkPhase === 0) {
@@ -702,6 +709,7 @@ async function setupScene(
       ? { x: keepInfo.get(welcome.squadId)!.x, y: keepInfo.get(welcome.squadId)!.y }
       : null,
     keepInfo,
+    bounties: new Map(),
     ownGold: { bk: 0, g: 0, wd: 0, rb: 1 },
     ownEliminated: false,
     predictedAtkCd: 0,
@@ -830,7 +838,7 @@ function frame(now: number): void {
     };
   }
 
-  game.entities.sync(visible, roster, game.ownId, ownVisual);
+  game.entities.sync(visible, roster, game.ownId, ownVisual, game.bounties);
   game.sacks.sync(interp.sacks, now);
 
   // ---- movement life (M6 s2): dash kicks up earth + a squad-tint trail,
@@ -1327,17 +1335,30 @@ function flCharSheet(mode: 'squads' | 'poses' = 'poses'): boolean {
   const classes: Array<'fighter' | 'ranger' | 'engineer'> = ['fighter', 'ranger', 'engineer'];
   const fakeRoster = new Map<number, RosterEntry>();
   const ents = new Map<number, RichEnt>();
+  const fakeBounties = new Map<number, number>();
   const walkers: number[] = [];
   let id = 90001;
-  const add = (x: number, y: number, cls: RichEnt['cls'], st: number, squad: number, name = '') => {
+  const add = (
+    x: number,
+    y: number,
+    cls: RichEnt['cls'],
+    st: number,
+    squad: number,
+    name = '',
+    bounty = 0,
+  ) => {
     fakeRoster.set(id, { id, squad, name, bot: false });
     ents.set(id, { x, y, ax: 1, ay: 0, hp: getKit(game!.cfg, cls).maxHp, cls, st });
+    fakeBounties.set(id, bounty);
     return id++;
   };
   if (mode === 'squads') {
+    // Writ ramp per class column (none / Wanted / Crownmarked): proves the
+    // tier colors read against all four squad colors, red-on-red included.
+    const writs = [0, 150, 800];
     for (let squad = 0; squad < 4; squad++) {
       classes.forEach((cls, ci) => {
-        add(own.x + (ci - 1) * 2.2, own.y + (squad - 1.5) * 1.9, cls, 0, squad);
+        add(own.x + (ci - 1) * 2.2, own.y + (squad - 1.5) * 1.9, cls, 0, squad, '', writs[ci]!);
       });
     }
   } else {
@@ -1351,6 +1372,9 @@ function flCharSheet(mode: 'squads' | 'poses' = 'poses'): boolean {
       { name: 'rooted', st: ST_ROOTED },
       { name: 'dash', st: ST_DASHING },
     ];
+    // One writ tier per pose column, hidden through Crownmarked — the whole
+    // ramp on one sheet (size + color + the tier-5 smolder over the walk gait).
+    const writs = [0, 20, 60, 160, 320, 520, 850, 1200];
     classes.forEach((cls, ci) => {
       poses.forEach((p, pi) => {
         const eid = add(
@@ -1360,12 +1384,13 @@ function flCharSheet(mode: 'squads' | 'poses' = 'poses'): boolean {
           p.st,
           game!.ownSquad,
           ci === 0 ? p.name : '',
+          writs[pi % writs.length]!,
         );
         if (p.walk) walkers.push(eid);
       });
     });
   }
-  sheet.sync(ents, fakeRoster, -1, null);
+  sheet.sync(ents, fakeRoster, -1, null, fakeBounties);
   // Give the walk column a real mid-stride gait phase: nudge them forward a
   // few times so bobPhase accumulates exactly the way live movement does.
   for (let stepI = 0; stepI < 3; stepI++) {
@@ -1373,7 +1398,7 @@ function flCharSheet(mode: 'squads' | 'poses' = 'poses'): boolean {
       const e = ents.get(wid)!;
       ents.set(wid, { ...e, x: e.x + 0.11 });
     }
-    sheet.sync(ents, fakeRoster, -1, null);
+    sheet.sync(ents, fakeRoster, -1, null, fakeBounties);
   }
   scene.app.renderer.render(scene.app.stage);
   return true;
@@ -1404,7 +1429,8 @@ window.__fl = {
   phase: () => game?.phase ?? -1,
   pump: flPump,
   shot: flShot,
-  shotChunk: (i: number, size = 24000) => (lastShot ? lastShot.slice(i * size, (i + 1) * size) : null),
+  shotChunk: (i: number, size = 24000) =>
+    lastShot ? lastShot.slice(i * size, (i + 1) * size) : null,
   charSheet: flCharSheet,
   charSheetClear: () => {
     sheet?.clear();

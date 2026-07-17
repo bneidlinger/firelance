@@ -11,8 +11,10 @@ import {
   ST_ROOTED,
   ST_WINDUP,
 } from '@shared/net/messages';
+import { bountyTier } from '@shared/sim/systems/economy';
 import { FX } from '../fx/config';
 import type { RichEnt } from '../net/interpolation';
+import { TIER_COLORS } from './hud';
 import { SQUAD_COLORS, TILE } from './scene';
 
 // Procedural top-down soldiers (character pass). The squad-colored disc STAYS
@@ -56,6 +58,10 @@ interface Sprite {
   state: Graphics; // per-frame redraw: shield arc, swing wedge, dash streak
   hpFill: Graphics;
   label: Text;
+  /** The writ over their head: ★bounty in tier color. Hidden at 0. */
+  writ: Text;
+  writKey: string; // bounty|tier — the Text re-renders only when this changes
+  writTier: number;
   bodyKey: string; // cls|self|bot — body redraws only when this changes
   poseKey: string; // cls|pose|ready — gear redraws only when this changes
   cls: ClassId | null;
@@ -153,6 +159,22 @@ export class EntityLayer {
     label.position.set(0, -TILE * 0.4 - 12);
     root.addChild(label);
 
+    // The writ: the price on their head, nailed one line above the name. The
+    // soft under-shadow keeps a khaki 9px number readable over sunlit grass.
+    const writ = new Text({
+      text: '',
+      style: {
+        fontSize: 9,
+        fill: TIER_COLORS[0]!,
+        fontFamily: 'Consolas, monospace',
+        dropShadow: { color: 0x000000, alpha: 0.6, blur: 1, distance: 1, angle: Math.PI / 2 },
+      },
+    });
+    writ.anchor.set(0.5, 1);
+    writ.position.set(0, -TILE * 0.4 - 27);
+    writ.visible = false;
+    root.addChild(writ);
+
     this.container.addChild(root);
     s = {
       root,
@@ -164,6 +186,9 @@ export class EntityLayer {
       state,
       hpFill,
       label,
+      writ,
+      writKey: '',
+      writTier: 0,
       bodyKey: '',
       poseKey: '',
       cls: null,
@@ -211,8 +236,12 @@ export class EntityLayer {
     const fy = Math.sin(s.moveAng);
     const step = moving ? Math.sin(s.bobPhase) * FX.character.strideAmp * r : 0;
     // Perpendicular stance width; opposite feet swing opposite directions.
-    g.circle(-fy * r * 0.5 + fx * step, fx * r * 0.5 + fy * step, FX.character.bootR * r).fill(BOOT);
-    g.circle(fy * r * 0.5 - fx * step, -fx * r * 0.5 - fy * step, FX.character.bootR * r).fill(BOOT);
+    g.circle(-fy * r * 0.5 + fx * step, fx * r * 0.5 + fy * step, FX.character.bootR * r).fill(
+      BOOT,
+    );
+    g.circle(fy * r * 0.5 - fx * step, -fx * r * 0.5 - fy * step, FX.character.bootR * r).fill(
+      BOOT,
+    );
   }
 
   /** Redraw the body when class/self/bot changes. Local frame: +X is forward.
@@ -310,7 +339,8 @@ export class EntityLayer {
       // Sword in the right hand.
       const hx = r * 0.1;
       const hy = r * 0.9;
-      const ang = pose === 'windup' ? 1.65 : pose === 'active' ? -0.45 : pose === 'block' ? 1.0 : 0.32;
+      const ang =
+        pose === 'windup' ? 1.65 : pose === 'active' ? -0.45 : pose === 'block' ? 1.0 : 0.32;
       const len = r * 1.65;
       g.moveTo(hx, hy)
         .lineTo(hx + Math.cos(ang) * len, hy + Math.sin(ang) * len)
@@ -455,6 +485,27 @@ export class EntityLayer {
     s.hpFill.rect(0, 0, HP_W * frac, 3.5).fill(color);
   }
 
+  /** The bounty writ above the name. Bounty is public info by design — the
+   *  tag is the targeting read ("which head pays?"): tier color and a size
+   *  that creeps up with the tier, so a Crownmarked purse outshouts the name.
+   *  No bounty, no clutter. Re-renders only when the number or tier moves. */
+  private drawWrit(s: Sprite, bounty: number): void {
+    const tier = bounty > 0 ? bountyTier(this.cfg, bounty) : 0;
+    const key = bounty > 0 ? `${bounty}|${tier}` : '';
+    if (s.writKey === key) return;
+    s.writKey = key;
+    s.writTier = tier;
+    if (bounty <= 0) {
+      s.writ.visible = false;
+      return;
+    }
+    s.writ.text = `★${bounty}`;
+    s.writ.style.fontSize = 9 + tier;
+    s.writ.style.fontWeight = tier >= 3 ? 'bold' : 'normal';
+    s.writ.style.fill = TIER_COLORS[tier]!;
+    s.writ.visible = true;
+  }
+
   /** Everything a sprite does each frame, self and remote alike. */
   private present(
     s: Sprite,
@@ -464,6 +515,11 @@ export class EntityLayer {
   ): void {
     this.drawGear(s, e.cls, this.pose(e.st, e.cls), ready);
     this.drawState(s, e);
+    // Infamous+ writs smolder — a slow alpha breath (never a shake), the same
+    // "interrupt me" language as the banking beacon.
+    if (s.writ.visible) {
+      s.writ.alpha = s.writTier >= 4 ? 0.74 + 0.26 * Math.sin(now / 280) : 1;
+    }
     s.bodyWrap.rotation = Math.atan2(e.ay, e.ax);
     // Damage flash: brief warm tint on the whole sprite.
     s.root.tint = now < s.flashUntil ? 0xffb0a0 : 0xffffff;
@@ -478,6 +534,7 @@ export class EntityLayer {
     roster: Map<number, RosterEntry>,
     ownId: number,
     own: OwnVisual | null,
+    bounties: ReadonlyMap<number, number>,
   ): void {
     const now = performance.now();
     const seen = new Set<number>();
@@ -488,6 +545,7 @@ export class EntityLayer {
       const s = this.ensure(id, entry, false);
       this.drawBody(s, e.cls, false, entry?.bot ?? false);
       this.drawHp(s, e.hp, e.cls);
+      this.drawWrit(s, bounties.get(id) ?? 0);
       // Squadmates broadcast their load next to their name (escort intel).
       const base = entry?.name ?? `#${id}`;
       const want = e.g !== undefined && e.g > 0 ? `${base} ◆${e.g}` : base;
@@ -501,6 +559,8 @@ export class EntityLayer {
       const s = this.ensure(ownId, entry, true);
       this.drawBody(s, own.cls, true, false);
       this.drawHp(s, own.hp, own.cls);
+      // You wear your own writ too — the price others see is the pressure.
+      this.drawWrit(s, bounties.get(ownId) ?? 0);
       this.present(s, own, own.atkReady ?? true, now);
     }
     for (const [id, s] of this.sprites) {

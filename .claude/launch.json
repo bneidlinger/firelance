@@ -38,6 +38,27 @@
       "port": 8787
     },
     {
+      "name": "verify-writ",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "packages/server/src/index.ts",
+        "--port",
+        "8899",
+        "--config",
+        "prototype",
+        "--bots",
+        "11",
+        "--seed",
+        "7",
+        "--map",
+        "vale_full",
+        "--static",
+        "packages/client/dist"
+      ],
+      "port": 8899
+    },
+    {
       "name": "verify-restart",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
