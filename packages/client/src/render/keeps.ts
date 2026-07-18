@@ -1,5 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
-import { SQUAD_COLORS, TILE } from './scene';
+import { FX } from '../fx/config';
+import { INK, PROPS, SQUAD_COLORS } from './palette';
+import { TILE } from './scene';
 
 // Keep status markers — DYNAMIC as of M3: hp bars burn down under siege, a
 // fallen keep becomes a grey ruin, and an emergency rebuild moves the marker
@@ -66,6 +68,9 @@ export class KeepLayer {
     g.clear();
     if (hp > 0) {
       g.circle(0, 0, this.interactRadius * TILE).stroke({ width: 2, color, alpha: 0.55 });
+      // Grounded (G1): the bastion casts SE shade like everything else.
+      // G2 replaces this whole marker with real architecture.
+      g.ellipse(1.5, 8.5, 10, 3.5).fill({ color: 0x000000, alpha: FX.grounding.shadowAlpha });
       g.circle(0, 0, 4).fill(color);
       // Simple bastion square behind the dot so keeps read as buildings.
       g.rect(-7, -7, 14, 14).stroke({ width: 2, color, alpha: 0.9 });
@@ -73,7 +78,7 @@ export class KeepLayer {
       // thresholds — the wall tells the same story as the bar. Public info
       // (keep hp is on every score), derived, nothing new on the wire.
       const frac = hp / this.maxHp;
-      const crack = { width: 1.5, color: 0x14170f, alpha: 0.85 } as const;
+      const crack = { width: 1.5, color: INK, alpha: 0.85 } as const;
       if (frac <= 0.75) {
         g.moveTo(-7, -3).lineTo(-2, -1).lineTo(-4, 3).stroke(crack);
       }
@@ -84,18 +89,18 @@ export class KeepLayer {
       if (frac <= 0.25) {
         g.moveTo(-7, 5).lineTo(-3, 2).lineTo(-5, -2).lineTo(-1, -4).stroke(crack);
         g.moveTo(7, 6).lineTo(2, 2).stroke(crack);
-        g.rect(-7, -7, 14, 14).fill({ color: 0x14170f, alpha: 0.22 });
+        g.rect(-7, -7, 14, 14).fill({ color: INK, alpha: 0.22 });
       }
     } else {
       // The ruin: broken grey ring + rubble X. Still a place — just a dead one.
       g.circle(0, 0, this.interactRadius * TILE).stroke({
         width: 1.5,
-        color: 0x777770,
+        color: PROPS.ruin,
         alpha: 0.35,
       });
       g.moveTo(-8, -8).lineTo(8, 8).moveTo(8, -8).lineTo(-8, 8).stroke({
         width: 3,
-        color: 0x777770,
+        color: PROPS.ruin,
         alpha: 0.8,
       });
     }

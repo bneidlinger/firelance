@@ -195,18 +195,13 @@ function drawSoldier(ctx, cx, cy, S, o) {
   const r = R, color = SQUAD[o.squad] || '#fff';
   const bob = 1 + Math.sin(o.bobPhase || 0) * 0.045;
 
-  // shadow (unrotated)
+  // shadow (unrotated) — codex sun NW: it falls a touch south-east
   ctx.save(); ctx.globalAlpha = 0.3; ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.ellipse(0, r * 0.2, r * 1.15, r * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  ctx.beginPath(); ctx.ellipse(r * 0.12, r * 0.24, r * 1.15, r * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
 
   // ---- state layer (unrotated) ----
-  // fixed-sun volume: filled shade crescent low-left, rim light up-right
-  ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.98, Math.PI * 0.3, Math.PI * 1.2);
-  ctx.arc(0, 0, r * 0.55, Math.PI * 1.2, Math.PI * 0.3, true);
-  ctx.closePath(); ctx.fill(); ctx.restore();
-  ring(ctx, 0, 0, r * 0.78, r * 0.16, '#fff', 0.12, -Math.PI * 0.55, -Math.PI * 0.1);
+  // (fixed-sun volume draws AFTER the body now — G1: under the opaque disc
+  // it was invisible; see the codex-sun block below the gear section)
   const a = o.facing || 0, ax = Math.cos(a), ay = Math.sin(a);
   if (o.pose === 'block') ring(ctx, 0, 0, r * 1.4, r * 0.55, '#9db4c9', 1, a - Math.PI / 3, a + Math.PI / 3);
   if (o.pose === 'windup' || o.pose === 'active') {
@@ -271,7 +266,7 @@ function drawSoldier(ctx, cx, cy, S, o) {
   }
 
   dot(ctx, 0, 0, r, color); // THE squad disc
-  ring(ctx, 0, 0, r, r * 0.2, '#12160e', 0.9); // contour: silhouette pop
+  ring(ctx, 0, 0, r, r * 0.2, '#14170f', 0.9); // contour: silhouette pop (codex INK)
 
   if (o.cls === 'fighter') {
     dot(ctx, -r * 0.1, -r * 0.62, r * 0.27, C.STEEL); ring(ctx, -r * 0.1, -r * 0.62, r * 0.27, r * 0.14, C.STEEL_EDGE);
@@ -319,6 +314,15 @@ function drawSoldier(ctx, cx, cy, S, o) {
     if (o.ready !== false) dot(ctx, r * 1.42, 0, r * 0.16, C.FLETCH);
   }
   ctx.restore();
+
+  // codex sun (NW), ABOVE the body so it shows: shade low-right, glint up-left
+  ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.98, -Math.PI * 0.2, Math.PI * 0.7);
+  ctx.arc(0, 0, r * 0.55, Math.PI * 0.7, -Math.PI * 0.2, true);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+  ring(ctx, 0, 0, r * 0.78, r * 0.16, '#fff', 0.12, -Math.PI * 0.9, -Math.PI * 0.45);
+
   ctx.restore();
 }
 

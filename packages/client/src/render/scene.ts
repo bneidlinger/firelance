@@ -1,34 +1,13 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { MapData } from '@shared/map/types';
+import { GOLD, INK, SQUAD_COLORS, TERRAIN as COLORS } from './palette';
 
 // Pixi scene: a world container (scaled TILE px per world unit) holding the
 // static map layer and the entity layer, with a camera that follows a point.
+// Colors live in the codex (render/palette.ts); the bake obeys the codex sun
+// (NW — lit edges up-left, shadows fall south-east).
 
 export const TILE = 19;
-
-const COLORS = {
-  ground: 0x2f3428,
-  groundAlt: 0x333929,
-  groundDeep: 0x2c3226,
-  grass: 0x475639,
-  stone: 0x596052,
-  forest: 0x22371f,
-  forestLit: 0x2e4a28,
-  water: 0x1f3a52,
-  waterShallow: 0x25425a,
-  waterLine: 0x14202e,
-  ripple: 0x3d5f7d,
-  bridge: 0x7a6544,
-  plank: 0x5f4c33,
-  rail: 0x4a3a26,
-  wall: 0x55554d,
-  wallLit: 0x6d6d62,
-  wallShade: 0x3a3a34,
-  keep: 0xd5aa54,
-  town: 0xf2d68c,
-};
-
-export const SQUAD_COLORS = [0xf05a4d, 0x5686bf, 0x8fae6a, 0xe0b95e];
 
 export class Scene {
   readonly app: Application;
@@ -70,7 +49,7 @@ export class Scene {
 
   static async create(mount: HTMLElement): Promise<Scene> {
     const app = new Application();
-    await app.init({ resizeTo: window, background: 0x14170f, antialias: true });
+    await app.init({ resizeTo: window, background: INK, antialias: true });
     mount.appendChild(app.canvas);
     return new Scene(app);
   }
@@ -125,19 +104,19 @@ export class Scene {
         const h = (((x * 83492791) ^ (y * 297121507)) >>> 0) % 9;
         if (isRock(x, y)) {
           const tint =
-            h % 3 === 0 ? COLORS.wall + 0x040404 : h % 3 === 1 ? COLORS.wall - 0x030303 : COLORS.wall;
+            h % 3 === 0 ? COLORS.rock + 0x040404 : h % 3 === 1 ? COLORS.rock - 0x030303 : COLORS.rock;
           g.rect(x * TILE, y * TILE, TILE, TILE).fill(tint);
           if (!isRock(x, y - 1))
-            g.rect(x * TILE, y * TILE, TILE, TILE * 0.18).fill({ color: COLORS.wallLit, alpha: 0.9 });
+            g.rect(x * TILE, y * TILE, TILE, TILE * 0.18).fill({ color: COLORS.rockLit, alpha: 0.9 });
           if (!isRock(x, y + 1))
             g.rect(x * TILE, (y + 0.85) * TILE, TILE, TILE * 0.15).fill({
-              color: COLORS.wallShade,
+              color: COLORS.rockShade,
               alpha: 0.9,
             });
           if (h === 4) {
             g.moveTo((x + 0.25) * TILE, (y + 0.3) * TILE)
               .lineTo((x + 0.55) * TILE, (y + 0.7) * TILE)
-              .stroke({ width: 1.2, color: COLORS.wallShade, alpha: 0.8 });
+              .stroke({ width: 1.2, color: COLORS.rockShade, alpha: 0.8 });
           }
           // Dark edge wherever rock meets anything else: tiles fuse into ONE
           // ruin instead of a stack of bricks.
@@ -214,7 +193,7 @@ export class Scene {
         if (!isForest(x, y)) continue;
         if (!(isForest(x - 1, y) && isForest(x + 1, y) && isForest(x, y - 1) && isForest(x, y + 1))) {
           forestG
-            .circle((x + 0.36) * TILE, (y + 0.68) * TILE, TILE * 0.62)
+            .circle((x + 0.64) * TILE, (y + 0.68) * TILE, TILE * 0.62)
             .fill({ color: 0x000000, alpha: 0.12 });
         }
       }
@@ -352,20 +331,20 @@ export class Scene {
     for (const k of map.keeps) {
       poi
         .circle(k.x * TILE, k.y * TILE, interactRadius * TILE * 0.55)
-        .stroke({ width: 1.5, color: COLORS.keep, alpha: 0.22 });
+        .stroke({ width: 1.5, color: GOLD.keep, alpha: 0.22 });
     }
     for (const t of map.towns) {
       // A bank: gold square vault + coin dot, inside its interact circle.
       // (Sized off TILE — these were designed at 12px/tile and stayed there.)
       const vw = TILE * 0.58;
-      poi.rect(t.x * TILE - vw / 2, t.y * TILE - vw / 2, vw, vw).fill(COLORS.town);
+      poi.rect(t.x * TILE - vw / 2, t.y * TILE - vw / 2, vw, vw).fill(GOLD.town);
       poi
         .rect(t.x * TILE - vw / 2, t.y * TILE - vw / 2, vw, vw)
-        .stroke({ width: 2, color: 0x7a6544 });
-      poi.circle(t.x * TILE, t.y * TILE, TILE * 0.16).fill(0x7a6544);
+        .stroke({ width: 2, color: GOLD.trim });
+      poi.circle(t.x * TILE, t.y * TILE, TILE * 0.16).fill(GOLD.trim);
       poi
         .circle(t.x * TILE, t.y * TILE, interactRadius * TILE)
-        .stroke({ width: 2.5, color: COLORS.town, alpha: 0.75 });
+        .stroke({ width: 2.5, color: GOLD.town, alpha: 0.75 });
     }
     map.spawns.forEach((s, squad) => {
       poi

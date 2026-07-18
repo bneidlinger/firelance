@@ -40,11 +40,12 @@ import { FloatTextLayer } from './render/floattext';
 import { FxLayer } from './render/fx';
 import { GhostMemory } from './render/ghosts';
 import { ParticleLayer } from './render/particles';
-import { Hud, TIER_COLORS, TIER_NAMES } from './render/hud';
+import { Hud, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
-import { Scene, SQUAD_COLORS } from './render/scene';
+import { SQUAD_COLORS, SQUAD_CSS, TIER_CSS } from './render/palette';
+import { Scene } from './render/scene';
 import { StructureLayer } from './render/structures';
 import { initFrontDoor } from './ui/frontdoor';
 import { initSettings } from './ui/settings';
@@ -138,7 +139,6 @@ let game: GameState | null = null;
 let scene: Scene | null = null;
 let disconnected = false;
 
-const SQUAD_CSS = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
 const SQUAD_CSS_SAFE = (squad: number): string => SQUAD_CSS[squad] ?? '#ffffff';
 
 /** " — close by, to the north-west" style bearing for rumor news lines (no
@@ -459,7 +459,7 @@ function handleEvent(ev: NetEvent): void {
           game.hud.toast(`your vault's wealth is the talk of the land — bank it or defend it`);
         }
       } else {
-        const tierSpan = `<span style="color:${TIER_COLORS[ev.tier] ?? '#fff'}">`;
+        const tierSpan = `<span style="color:${TIER_CSS[ev.tier] ?? '#fff'}">`;
         const what =
           ev.kind === 'carrier'
             ? `hauls a heavy purse`
@@ -960,7 +960,7 @@ function frame(now: number): void {
     const tier = bountyTier(game.cfg, latestYou.bounty);
     if (game.lastOwnTier >= 0 && tier > game.lastOwnTier) {
       game.hud.moment(
-        `<span style="color:${TIER_COLORS[tier] ?? '#fff'}">★ ${(TIER_NAMES[tier] ?? '').toUpperCase()} ★</span>`,
+        `<span style="color:${TIER_CSS[tier] ?? '#fff'}">★ ${(TIER_NAMES[tier] ?? '').toUpperCase()} ★</span>`,
         1900,
       );
       game.hud.vignette(); // one watched-from-the-dark flicker

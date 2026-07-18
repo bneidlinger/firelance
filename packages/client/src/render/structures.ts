@@ -1,7 +1,9 @@
 import { Container, Graphics } from 'pixi.js';
 import type { StructSnap } from '@shared/net/messages';
 import { STRUCT_GATE, STRUCT_HUT, STRUCT_TOWER, STRUCT_TRAP, STRUCT_TREE } from '@shared/sim/world';
-import { SQUAD_COLORS, TILE } from './scene';
+import { FX } from '../fx/config';
+import { INK, PROPS, SQUAD_COLORS } from './palette';
+import { TILE } from './scene';
 
 // Structures (M4): squad-colored tiles. Walls read as stone, gates as a
 // door (posts + crossbar — YOUR squad walks through its own), towers as a
@@ -10,6 +12,9 @@ import { SQUAD_COLORS, TILE } from './scene';
 // a bold edge; enemy pieces (only sent once seen) a shade dimmer. Damage dims
 // the fill and cracks it. Renders straight from the newest snapshot's visible
 // set, exactly like sacks: fog entry/exit is just presence/absence, no lerp.
+// Grounded (G1) under the codex sun: tile-run pieces (walls, gates) wear a
+// lit cap up top and an inked footing below; freestanding pieces (towers,
+// trees, huts) cast a soft SE drop shadow.
 
 interface StructSprite {
   g: Graphics;
@@ -76,7 +81,7 @@ export class StructureLayer {
 
   private draw(s: StructSnap, ownSquad: number): Graphics {
     const g = new Graphics();
-    const base = SQUAD_COLORS[s.s] ?? 0x8a8a80;
+    const base = SQUAD_COLORS[s.s] ?? PROPS.neutral;
     const own = s.s === ownSquad;
     const frac = Math.max(0, Math.min(1, s.mx > 0 ? s.hp / s.mx : 1));
     const fillAlpha = (own ? 0.85 : 0.7) * (0.4 + 0.6 * frac);
@@ -92,6 +97,12 @@ export class StructureLayer {
         color: base,
         alpha: 0.95,
       });
+      g.moveTo(1, 1.6)
+        .lineTo(TILE - 1, 1.6)
+        .stroke({ width: 1.2, color: 0xffffff, alpha: FX.grounding.edgeLitAlpha });
+      g.moveTo(1, TILE - 1.6)
+        .lineTo(TILE - 1, TILE - 1.6)
+        .stroke({ width: 1.2, color: INK, alpha: FX.grounding.edgeShadeAlpha });
     } else if (s.k === STRUCT_TRAP) {
       // A caltrop lying flat: X of spikes + a hub. Deliberately small and
       // ground-hugging — the server only ever sends it to the owning squad
@@ -122,47 +133,67 @@ export class StructureLayer {
       // the chopping is visible from across a field. Nobody owns an oak, so
       // no squad edge and no crack overlay.
       const c = TILE / 2;
-      g.ellipse(c, c + TILE * 0.18, TILE * 0.34, TILE * 0.2).fill({
+      g.ellipse(c + TILE * 0.14, c + TILE * 0.22, TILE * 0.36, TILE * 0.21).fill({
         color: 0x000000,
-        alpha: 0.18,
+        alpha: FX.grounding.shadowAlpha,
       });
-      g.circle(c, c, TILE * 0.16).fill(0x4a3a26);
+      g.circle(c, c, TILE * 0.16).fill(PROPS.trunk);
       const crownR = TILE * (0.26 + 0.26 * frac);
-      g.circle(c - TILE * 0.1, c - TILE * 0.08, crownR).fill({ color: 0x2b4426, alpha: 0.95 });
+      g.circle(c - TILE * 0.1, c - TILE * 0.08, crownR).fill({ color: PROPS.oak, alpha: 0.95 });
       g.circle(c + TILE * 0.12, c + TILE * 0.04, crownR * 0.8).fill({
-        color: 0x2b4426,
+        color: PROPS.oak,
         alpha: 0.95,
       });
-      g.circle(c + TILE * 0.02, c - TILE * 0.14, crownR * 0.7).fill({
-        color: 0x35512d,
+      g.circle(c - TILE * 0.06, c - TILE * 0.14, crownR * 0.7).fill({
+        color: PROPS.oakLit,
         alpha: 0.9,
       });
       return g;
     } else if (s.k === STRUCT_HUT) {
       // A cottage: mud walls under a thatch roof with a ridge line. Shares the
       // crack overlay — "one more bomb" reads on architecture of any owner.
-      g.rect(1.5, 2, TILE - 3, TILE - 4).fill({ color: 0x6b5233, alpha: 0.95 });
-      g.rect(1.5, 2, TILE - 3, TILE - 4).stroke({ width: 1.2, color: 0x3c2f1e, alpha: 0.9 });
-      g.rect(0.5, TILE * 0.3, TILE - 1, TILE * 0.42).fill({ color: 0x8a7550, alpha: 0.95 });
+      g.ellipse(TILE / 2 + 1.5, TILE - 1.5, TILE * 0.52, TILE * 0.16).fill({
+        color: 0x000000,
+        alpha: FX.grounding.shadowAlpha,
+      });
+      g.rect(1.5, 2, TILE - 3, TILE - 4).fill({ color: PROPS.hutWall, alpha: 0.95 });
+      g.rect(1.5, 2, TILE - 3, TILE - 4).stroke({ width: 1.2, color: PROPS.hutEdge, alpha: 0.9 });
+      g.rect(0.5, TILE * 0.3, TILE - 1, TILE * 0.42).fill({ color: PROPS.thatch, alpha: 0.95 });
+      // NW sun: the eave catches light above the ridge, the footing sits in ink.
+      g.moveTo(1, TILE * 0.33)
+        .lineTo(TILE - 1, TILE * 0.33)
+        .stroke({ width: 1.1, color: 0xffffff, alpha: FX.grounding.edgeLitAlpha });
       g.moveTo(1, TILE / 2)
         .lineTo(TILE - 1, TILE / 2)
-        .stroke({ width: 1.4, color: 0x5d4d33, alpha: 0.9 });
+        .stroke({ width: 1.4, color: PROPS.thatchRidge, alpha: 0.9 });
+      g.moveTo(2, TILE - 2.4)
+        .lineTo(TILE - 2, TILE - 2.4)
+        .stroke({ width: 1.2, color: INK, alpha: FX.grounding.edgeShadeAlpha });
     } else if (s.k === STRUCT_TOWER) {
       // A lookout: round platform + cross braces; a dot for the sentry.
+      g.ellipse(TILE / 2 + 2, TILE / 2 + 2.5, TILE * 0.5, TILE * 0.32).fill({
+        color: 0x000000,
+        alpha: FX.grounding.shadowAlpha,
+      });
       g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).fill({ color: base, alpha: fillAlpha });
       g.circle(TILE / 2, TILE / 2, TILE / 2 - 1).stroke({
         width: own ? 2 : 1.5,
         color: base,
         alpha: 0.95,
       });
+      g.arc(TILE / 2, TILE / 2, TILE / 2 - 2.2, -Math.PI * 0.95, -Math.PI * 0.4).stroke({
+        width: 1.2,
+        color: 0xffffff,
+        alpha: FX.grounding.edgeLitAlpha,
+      });
       g.moveTo(2.5, 2.5)
         .lineTo(TILE - 2.5, TILE - 2.5)
         .moveTo(TILE - 2.5, 2.5)
         .lineTo(2.5, TILE - 2.5)
-        .stroke({ width: 1, color: 0x14170f, alpha: 0.35 });
-      g.circle(TILE / 2, TILE / 2, 1.6).fill({ color: 0x14170f, alpha: 0.7 });
+        .stroke({ width: 1, color: INK, alpha: 0.35 });
+      g.circle(TILE / 2, TILE / 2, 1.6).fill({ color: INK, alpha: 0.7 });
     } else {
-      // The wall: stone tile with mortar seams.
+      // The wall: stone tile with mortar seams, lit like the rock it imitates.
       g.rect(1, 1, TILE - 2, TILE - 2).fill({ color: base, alpha: fillAlpha });
       g.rect(0.5, 0.5, TILE - 1, TILE - 1).stroke({
         width: own ? 2 : 1.5,
@@ -171,17 +202,23 @@ export class StructureLayer {
       });
       g.moveTo(2, TILE / 2)
         .lineTo(TILE - 2, TILE / 2)
-        .stroke({ width: 1, color: 0x14170f, alpha: 0.4 });
+        .stroke({ width: 1, color: INK, alpha: 0.4 });
       g.moveTo(TILE / 2, 2)
         .lineTo(TILE / 2, TILE - 2)
-        .stroke({ width: 1, color: 0x14170f, alpha: 0.25 });
+        .stroke({ width: 1, color: INK, alpha: 0.25 });
+      g.moveTo(1.5, 2)
+        .lineTo(TILE - 1.5, 2)
+        .stroke({ width: 1.2, color: 0xffffff, alpha: FX.grounding.edgeLitAlpha });
+      g.moveTo(1.5, TILE - 2)
+        .lineTo(TILE - 1.5, TILE - 2)
+        .stroke({ width: 1.2, color: INK, alpha: FX.grounding.edgeShadeAlpha });
     }
 
     // A crack once it's below half — the "one more bomb" tell (any kind).
     if (frac < 0.5) {
       g.moveTo(3, 2)
         .lineTo(TILE - 4, TILE - 3)
-        .stroke({ width: 1, color: 0x14170f, alpha: 0.55 });
+        .stroke({ width: 1, color: INK, alpha: 0.55 });
     }
     return g;
   }

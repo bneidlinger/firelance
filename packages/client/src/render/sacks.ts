@@ -1,5 +1,7 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { SackSnap } from '@shared/net/messages';
+import { FX } from '../fx/config';
+import { GOLD } from './palette';
 import { TILE } from './scene';
 
 // Ground loot sacks: gold-colored diamonds sized by value, with the amount
@@ -56,18 +58,23 @@ export class SackLayer {
     const g = new Graphics();
     // Radius grows with value: 100g reads small, 1000g reads like a heist.
     const r = Math.min(10, 3.5 + Math.sqrt(sack.g) * 0.18);
+    // Grounded (G1): dropped gold sits on the field like everything else.
+    g.ellipse(r * 0.18, r * 0.62, r * 1.15, r * 0.45).fill({
+      color: 0x000000,
+      alpha: FX.grounding.shadowAlpha,
+    });
     g.moveTo(0, -r)
       .lineTo(r, 0)
       .lineTo(0, r)
       .lineTo(-r, 0)
       .closePath()
-      .fill(0xf2d68c)
-      .stroke({ width: 1.5, color: 0x7a6544 });
-    g.circle(0, 0, r + 3).stroke({ width: 1, color: 0xf2d68c, alpha: 0.35 });
+      .fill(GOLD.town)
+      .stroke({ width: 1.5, color: GOLD.trim });
+    g.circle(0, 0, r + 3).stroke({ width: 1, color: GOLD.town, alpha: 0.35 });
     root.addChild(g);
     const label = new Text({
       text: `${sack.g}g`,
-      style: { fontSize: 10, fill: 0xf2d68c, fontFamily: 'Consolas, monospace' },
+      style: { fontSize: 10, fill: GOLD.town, fontFamily: 'Consolas, monospace' },
     });
     label.anchor.set(0.5, 0);
     label.position.set(0, r + 4);

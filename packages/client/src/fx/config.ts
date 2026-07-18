@@ -1,6 +1,8 @@
 // Every juice knob in one place (M6 s1). Client-render-side ONLY — GameConfig
 // stays sim-pure, and nothing in here may reach prediction, occupancy, or aim.
 
+import { INK } from '../render/palette';
+
 export interface EmitSpec {
   /** Particles per emit call. */
   count: number;
@@ -96,12 +98,26 @@ export const FX = {
     /** Dark contour around the torso disc: pops the silhouette off the ground
      *  (the modern-flat read). Width × body radius. */
     outlineW: 0.2,
-    outlineColor: 0x12160e,
+    outlineColor: INK,
     outlineAlpha: 0.9,
     /** Fixed-sun volume on the disc: lower-right shade crescent and a small
      *  upper-left rim light. Alpha only — squad hue stays the whole torso. */
     shadeAlpha: 0.14,
     glintAlpha: 0.12,
+  },
+  grounding: {
+    /** G1, the codex sun (NW — see render/palette.ts): universal strengths
+     *  for the pass that sits everything ON the field. */
+    /** Soft SE drop shadow under freestanding pieces (trees, huts, towers,
+     *  sacks, the keep bastion). The ground is DARK olive — anything under
+     *  ~0.25 disappears into it (first-draft 0.18 read as nothing). */
+    shadowAlpha: 0.3,
+    /** White sun-side edge on architecture — alpha-only, hue stays the read.
+     *  (On the gold squad's pale walls this all but vanishes; the INK footing
+     *  below carries the grounding there.) */
+    edgeLitAlpha: 0.32,
+    /** INK off-sun edge: the footing that plants a piece on the ground. */
+    edgeShadeAlpha: 0.45,
   },
   emit: {
     /** Arrow dies in terrain: pale splinters, quick and dry. */

@@ -14,8 +14,17 @@ import {
 import { bountyTier } from '@shared/sim/systems/economy';
 import { FX } from '../fx/config';
 import type { RichEnt } from '../net/interpolation';
-import { TIER_COLORS } from './hud';
-import { SQUAD_COLORS, TILE } from './scene';
+import {
+  ALARM,
+  ARMORY,
+  FIRE,
+  GOLD,
+  KHAKI,
+  PARCHMENT,
+  SQUAD_COLORS,
+  TIER_COLORS,
+} from './palette';
+import { TILE } from './scene';
 
 // Procedural top-down soldiers (character pass). The squad-colored disc STAYS
 // the dominant read — friend-or-foe at a glance outranks costume — and the
@@ -25,23 +34,26 @@ import { SQUAD_COLORS, TILE } from './scene';
 // boots step with the distance-driven gait phase along the MOVE direction, so
 // strafing reads as strafing. Still Pixi primitives only — no asset files.
 
-// The armory palette, pulled from the concept board's tone strip: muted steel,
-// oiled leather, bow wood — nothing saturated enough to fight a squad color.
-const STEEL = 0x8b939e;
-const STEEL_DARK = 0x565e66;
-const STEEL_EDGE = 0x4a5058;
-const STEEL_BRIGHT = 0xd8e0e8;
-const BLADE = 0xb8c0c8;
-const GUARD = 0x7a6544;
-const LEATHER = 0x8a6f4d;
-const PACK = 0x6b5233;
-const PACK_EDGE = 0x4a3a26;
-const WOOD = 0x7a5c3a;
-const FLETCH = 0xd8d4c8;
-const HOOD = 0x46573a;
-const COWL_SHADOW = 0x232b1c;
-const BOOT = 0x241f19;
-const SHIELD_RAISED = 0x9db4c9;
+// The armory palette lives in the codex (render/palette.ts) with everything
+// else: muted steel, oiled leather, bow wood — nothing saturated enough to
+// fight a squad color.
+const {
+  STEEL,
+  STEEL_DARK,
+  STEEL_EDGE,
+  STEEL_BRIGHT,
+  BLADE,
+  GUARD,
+  LEATHER,
+  PACK,
+  PACK_EDGE,
+  WOOD,
+  FLETCH,
+  HOOD,
+  COWL_SHADOW,
+  BOOT,
+  SHIELD_RAISED,
+} = ARMORY;
 
 type Pose = 'idle' | 'windup' | 'active' | 'block';
 
@@ -56,6 +68,8 @@ interface Sprite {
   /** Weapon layer: redrawn only when the pose bucket changes. */
   gear: Graphics;
   state: Graphics; // per-frame redraw: shield arc, swing wedge, dash streak
+  /** Static codex-sun overlay ABOVE the body: shade crescent + rim glint. */
+  sun: Graphics;
   hpFill: Graphics;
   label: Text;
   /** The writ over their head: ★bounty in tier color. Hidden at 0. */
@@ -124,7 +138,7 @@ export class EntityLayer {
     // boots slide under the disc, then the rotating body itself.
     const shadow = new Graphics();
     shadow
-      .ellipse(0, r * 0.2, r * 1.15, r * 0.8)
+      .ellipse(r * 0.12, r * 0.24, r * 1.15, r * 0.8)
       .fill({ color: 0x000000, alpha: FX.character.shadowAlpha });
     root.addChild(shadow);
     const state = new Graphics();
@@ -137,6 +151,23 @@ export class EntityLayer {
     bodyWrap.addChild(body);
     bodyWrap.addChild(gear);
     root.addChild(bodyWrap);
+    // The codex sun (NW; render/palette.ts), drawn ONCE and layered ABOVE the
+    // rotated body so it actually lands on the disc: shade crescent lower-
+    // right, rim glint upper-left. It used to be redrawn every frame in the
+    // state layer UNDER the opaque torso — invisible since the modern pass;
+    // G1's pixel probe caught it. Unrotated: the sun must not spin with aim.
+    const sun = new Graphics();
+    sun
+      .arc(0, 0, r * 0.98, -Math.PI * 0.2, Math.PI * 0.7)
+      .arc(0, 0, r * 0.55, Math.PI * 0.7, -Math.PI * 0.2, true)
+      .closePath()
+      .fill({ color: 0x000000, alpha: FX.character.shadeAlpha });
+    sun.arc(0, 0, r * 0.78, -Math.PI * 0.9, -Math.PI * 0.45).stroke({
+      width: r * 0.16,
+      color: 0xffffff,
+      alpha: FX.character.glintAlpha,
+    });
+    root.addChild(sun);
 
     const hpBg = new Graphics();
     hpBg.rect(-HP_W / 2, 0, HP_W, 3.5).fill({ color: 0x000000, alpha: 0.55 });
@@ -151,7 +182,7 @@ export class EntityLayer {
       text: entry?.name ?? `#${id}`,
       style: {
         fontSize: 11,
-        fill: isSelf ? 0xf4ead8 : 0xb9ad98,
+        fill: isSelf ? PARCHMENT : KHAKI,
         fontFamily: 'Consolas, monospace',
       },
     });
@@ -184,6 +215,7 @@ export class EntityLayer {
       body,
       gear,
       state,
+      sun,
       hpFill,
       label,
       writ,
@@ -246,7 +278,8 @@ export class EntityLayer {
 
   /** Redraw the body when class/self/bot changes. Local frame: +X is forward.
    *  Worn kit (pack, quiver, helm) rotates with the body; that's correct —
-   *  it's ON them. World lighting (the torso shade) lives in drawState. */
+   *  it's ON them. World lighting (the torso shade) is the static sun
+   *  overlay above this layer — see ensure. */
   private drawBody(s: Sprite, cls: ClassId, isSelf: boolean, bot: boolean): void {
     const key = `${cls}|${isSelf ? 1 : 0}|${bot ? 1 : 0}`;
     if (s.bodyKey === key) return;
@@ -399,24 +432,14 @@ export class EntityLayer {
     const r = this.cfg.player.radius * TILE;
     const angle = Math.atan2(e.ay, e.ax);
 
-    // World lighting, fixed-angle (unrotated space, so the sun doesn't spin
-    // with the body): a filled shade crescent on the lower-left, a small rim
-    // light on the upper-right. Alpha-only — the squad hue stays the read.
-    g.arc(0, 0, r * 0.98, Math.PI * 0.3, Math.PI * 1.2)
-      .arc(0, 0, r * 0.55, Math.PI * 1.2, Math.PI * 0.3, true)
-      .closePath()
-      .fill({ color: 0x000000, alpha: FX.character.shadeAlpha });
-    g.arc(0, 0, r * 0.78, -Math.PI * 0.55, -Math.PI * 0.1).stroke({
-      width: r * 0.16,
-      color: 0xffffff,
-      alpha: FX.character.glintAlpha,
-    });
+    // World lighting lives on the static `sun` overlay above the body (see
+    // ensure) — this layer keeps only the dynamic telegraphs.
 
     if (e.st & ST_BLOCKING) {
       // Shield arc across the protected 120° frontal sector.
       g.arc(0, 0, r * 1.4, angle - Math.PI / 3, angle + Math.PI / 3).stroke({
         width: r * 0.55,
-        color: 0x9db4c9,
+        color: SHIELD_RAISED,
       });
     }
     if (e.st & ST_WINDUP && e.cls === 'fighter') {
@@ -426,7 +449,7 @@ export class EntityLayer {
       g.moveTo(0, 0)
         .arc(0, 0, reach, angle - half, angle + half)
         .lineTo(0, 0)
-        .fill({ color: 0xf05a4d, alpha: 0.14 });
+        .fill({ color: ALARM, alpha: 0.14 });
     }
     if (e.st & ST_ACTIVE && e.cls === 'fighter') {
       const melee = getKit(this.cfg, 'fighter').melee!;
@@ -435,7 +458,7 @@ export class EntityLayer {
       g.moveTo(0, 0)
         .arc(0, 0, reach, angle - half, angle + half)
         .lineTo(0, 0)
-        .fill({ color: 0xffe9b0, alpha: 0.4 });
+        .fill({ color: GOLD.bright, alpha: 0.4 });
     }
     if (e.st & ST_DASHING) {
       g.moveTo(-e.ax * r * 2.4, -e.ay * r * 2.4)
@@ -455,13 +478,13 @@ export class EntityLayer {
         .lineTo(bx, by + d)
         .lineTo(bx - d, by)
         .closePath()
-        .fill(0xf2d68c)
-        .stroke({ width: r * 0.17, color: 0x7a6544 });
+        .fill(GOLD.town)
+        .stroke({ width: r * 0.17, color: GOLD.trim });
     }
     if (e.st & ST_BANKING) {
       // Deposit channel in progress — the "interrupt me!" beacon.
       const pulse = 0.55 + 0.35 * Math.sin(performance.now() / 120);
-      g.circle(0, 0, r * 1.8).stroke({ width: r * 0.4, color: 0xf2d68c, alpha: pulse });
+      g.circle(0, 0, r * 1.8).stroke({ width: r * 0.4, color: GOLD.town, alpha: pulse });
     }
     if (e.st & ST_ROOTED) {
       // Snared: jagged shackle at the feet. Public state — a pinned target is
@@ -472,7 +495,7 @@ export class EntityLayer {
         const a1 = ((i + 0.5) / 6) * Math.PI * 2;
         g.moveTo(rr * Math.cos(a0), rr * Math.sin(a0))
           .lineTo(rr * 0.6 * Math.cos(a1), rr * 0.6 * Math.sin(a1))
-          .stroke({ width: r * 0.33, color: 0xd8543e, alpha: 0.9 });
+          .stroke({ width: r * 0.33, color: FIRE.ember, alpha: 0.9 });
       }
     }
   }

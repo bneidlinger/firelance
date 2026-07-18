@@ -1,6 +1,7 @@
 import type { ClassId, GameConfig } from '@shared/config';
 import { getKit, secToTicks } from '@shared/config';
 import { FX } from '../fx/config';
+import { SQUAD_CSS, TIER_CSS } from './palette';
 import { bountyTier, carrySpeedFactor } from '@shared/sim/systems/economy';
 import type { RosterEntry, ScoreMsg, SummaryMsg, YouSnap } from '@shared/net/messages';
 import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, PHASE_PLACEMENT } from '@shared/sim/world';
@@ -11,8 +12,6 @@ import { PHASE_COUNTDOWN, PHASE_ENDED, PHASE_LIVE, PHASE_PLACEMENT } from '@shar
 // DOM beats canvas text for iteration speed at this stage.
 
 export const TIER_NAMES = ['Nobody', 'Known', 'Wanted', 'Hunted', 'Infamous', 'Crownmarked'];
-export const TIER_COLORS = ['#b9ad98', '#c9c29b', '#e0b95e', '#e8985a', '#f05a4d', '#ff3333'];
-const SQUAD_CSS = ['#f05a4d', '#5686bf', '#8fae6a', '#e0b95e'];
 
 function el(id: string): HTMLElement {
   return document.getElementById(id)!;
@@ -78,7 +77,7 @@ export class Hud {
     const tier = bountyTier(this.cfg, you.bounty);
     const sb = el('selfbounty');
     sb.textContent = `Bounty ${you.bounty} · ${TIER_NAMES[tier]}`;
-    sb.style.color = TIER_COLORS[tier]!;
+    sb.style.color = TIER_CSS[tier]!;
 
     // Firebomb satchel: filled/empty pips + the throw cooldown.
     const bombs = el('bombs');
@@ -286,7 +285,7 @@ export class Hud {
         const tier = bountyTier(this.cfg, p.b);
         return (
           `<div><span style="color:${SQUAD_CSS[r?.squad ?? 0]}">${esc(r?.name ?? `#${p.id}`)}</span>` +
-          ` <span style="color:${TIER_COLORS[tier]}">${p.b}</span>` +
+          ` <span style="color:${TIER_CSS[tier]}">${p.b}</span>` +
           ` <span style="color:#777">${p.k}/${p.d}</span></div>`
         );
       })
