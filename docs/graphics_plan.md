@@ -1,6 +1,6 @@
 # Firelance Graphics Plan — the Vale earns its portrait
 
-> **Drafted:** 2026-07-18 · **Status:** G1–G2 shipped 2026-07-18 · G3–G6 queued
+> **Drafted:** 2026-07-18 · **Status:** G1–G3 shipped 2026-07-18 (G3 closes the Lived-In Vale interlude) · G4–G6 queued
 > **Scope:** render-only. Zero sim, zero protocol, zero config-hash changes. Every slice ships alone.
 > **North star image:** `docs/media/conceptart1.png` (the Red Writ concept board)
 
@@ -210,6 +210,19 @@ watch particle pool caps, decal pool bounds, fps flat; screenshot wall/gate/towe
 tiers own-vs-enemy; fog entry/exit and M5 ghost memory still correct (dimmed, behind live).
 Risk: medium. Most draw-code volume of the series; decal pool needs a hard cap (suggest 64,
 FIFO fade). Friend-or-foe check is the gate on the stone-body decision.
+
+**Shipped 2026-07-18 — and it closes the Lived-In Vale interlude** (props payoff + soak +
+playtest verdict lines). Field notes: (1) a banner over its own squad's stonework vanished —
+gold-on-gold, the same worst-case-contrast family as G1's lit edges — so every pennant now
+wears an INK outline (`pennant.ts`, all scales benefit). (2) Decal cap proven live: 273
+stamped through `__fl.decalDemo()`, pool held at exactly 64. (3) The soak got lucky: my
+squad was sieged and ELIMINATED on camera — two organic scars landed mid-soak, and the
+spectator firehose put G2's never-staged RUIN on film (`g3_ruin_live.png`): scorched yard,
+post stubs, charred hall, bare tilted mast, all correct. (4) `squadTint` 0.24 → 0.32 after
+the 2× distance check; gate leaves warmed from plank to bridge timber. Pools clean
+throughout (1067 emitted → 0 alive, 0 stolen, prediction err 0, zero console errors).
+Unstaged on camera, both on the ritual list: hut chimney smoke (wiring = the proven
+keep-smoke emitter + rejection sampler) and a live closed enemy gate.
 
 ---
 

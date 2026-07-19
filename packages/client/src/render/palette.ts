@@ -14,6 +14,18 @@
 
 export const cssOf = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
 
+/** Per-channel linear mix a→b by t (0..1) — squad-tinted materials, etc. */
+export const mix = (a: number, b: number, t: number): number => {
+  const ar = a >> 16;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  return (
+    (Math.round(ar + ((b >> 16) - ar) * t) << 16) |
+    (Math.round(ag + (((b >> 8) & 0xff) - ag) * t) << 8) |
+    Math.round(ab + ((b & 0xff) - ab) * t)
+  );
+};
+
 /** The one ink: outlines, cracks, mortar seams, and the app background.
  *  (0x12160e retired into it — two near-identical inks was drift, not design.) */
 export const INK = 0x14170f;

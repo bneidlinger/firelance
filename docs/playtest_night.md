@@ -35,6 +35,8 @@ standing rule. Join, then walk through:
 - [ ] **Low HP**: vignette breathes + heartbeat under ~30% — tense, not annoying
 - [ ] **Sounds**: 12-bot brawl is readable, not a buzz (spam gate); Esc sliders work and persist
 - [ ] **Keeps**: cracks at 75/50/25, smoke when critical, destruction is a MOMENT (banner + horn + scar)
+- [ ] **Architecture (G-series)**: keeps are castles with waving banners; walls read as coursed stone wearing YOUR squad's edge; your gates hang AJAR (enemy's closed); towers fly mini-pennants
+- [ ] **The lived-in Vale**: 3 swings fell a tree → stump + fallen trunk stay; a firebomb flattens a hut → charred ruin + smoke; living huts near you smoke from the chimney; dead walls leave masonry
 - [ ] **Banking**: channel plucks rise in pitch; completed deposit fountains gold; "+Ng banked" floats
 - [ ] **Bounty**: tier-up moment lands ("★ WANTED ★"), rumor pings + compass lines make you LOOK
 - [ ] **Alarm**: keep hit → edge-of-screen arrow points HOME correctly
@@ -57,6 +59,7 @@ The gate questions the whole roadmap has been waiting on. 1–5 or a sentence.
 - [ ] **Site tradeoffs**: did anyone argue about WHERE to claim? (near town vs bridge vs forest)
 - [ ] **Walls change sieges**: did built ground change how a siege played, without stalemating it?
 - [ ] **Trap ambushes**: did a trap ever create a story? (a snap mid-chase, a defended vault)
+- [ ] **The Vale fights back**: did anyone cut through trees or flatten a hut ON PURPOSE? Did stumps/rubble/scars help retell the match afterward?
 - [ ] **Big-map pacing**: does vale_full pace well, or is it a hiking simulator? (deposits/match: ____)
 
 ### M5 — replayability & information

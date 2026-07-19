@@ -1,8 +1,12 @@
 import { Container, Graphics } from 'pixi.js';
+import { ARMORY, INK, PROPS, TERRAIN } from './palette';
 import { TILE } from './scene';
 
-// Transient world-space effects: hit sparks, arrow impacts, death markers.
-// Fire-and-forget; each effect owns a tiny fade-out life.
+// Transient world-space effects: hit sparks, arrow impacts, death markers —
+// and, on the decal instance (G3), the long-lived scars: scorch, rubble,
+// stumps, hut ruins. Fire-and-forget; each effect owns a tiny fade-out life.
+// An optional cap bounds the pool: past it the OLDEST effect is dropped
+// early, so a demolition derby can't grow the layer without limit.
 
 interface Effect {
   gfx: Graphics;
@@ -14,11 +18,19 @@ interface Effect {
 export class FxLayer {
   private effects: Effect[] = [];
 
-  constructor(private readonly container: Container) {}
+  constructor(
+    private readonly container: Container,
+    private readonly cap?: number,
+  ) {}
 
   clear(): void {
     for (const e of this.effects) e.gfx.destroy();
     this.effects = [];
+  }
+
+  /** Pool size probe (soaks assert the decal cap holds). */
+  count(): number {
+    return this.effects.length;
   }
 
   hitSpark(x: number, y: number, blocked: boolean): void {
@@ -91,7 +103,69 @@ export class FxLayer {
     this.add(g, x, y, big ? 14000 : 9000, 1.04);
   }
 
+  /** A dead wall/gate/tower (G3): strewn masonry that outlives the fight.
+   *  Hash-shaped from coords so the same corpse looks the same to everyone. */
+  rubblePile(x: number, y: number, lifeMs: number): void {
+    const h = ((Math.round(x * 7) * 73856093) ^ (Math.round(y * 7) * 19349663)) >>> 0;
+    const g = new Graphics();
+    g.ellipse(1, 1.5, 8.5, 6).fill({ color: 0x000000, alpha: 0.18 });
+    for (let i = 0; i < 6; i++) {
+      const hh = (h >> (i * 4)) & 0xff;
+      const a = (hh / 255) * Math.PI * 2;
+      const d = 2 + (hh % 5);
+      const rx = Math.cos(a) * d;
+      const ry = Math.sin(a) * d * 0.75;
+      g.rect(rx - 1.6, ry - 1.2, 3.2, 2.4).fill({
+        color: i % 2 === 0 ? TERRAIN.rock : PROPS.ruin,
+        alpha: 0.9,
+      });
+      g.rect(rx - 1.6, ry - 1.2, 3.2, 2.4).stroke({ width: 0.7, color: INK, alpha: 0.5 });
+    }
+    g.circle(-4, 3, 1).fill({ color: PROPS.neutral, alpha: 0.8 });
+    g.circle(5, -2.5, 0.9).fill({ color: PROPS.neutral, alpha: 0.7 });
+    this.add(g, x, y, lifeMs, 1.0);
+  }
+
+  /** A felled tree (G3): stump rings + the trunk laid along a hash angle. */
+  stump(x: number, y: number, lifeMs: number): void {
+    const h = ((Math.round(x * 7) * 40503) ^ (Math.round(y * 7) * 97531)) >>> 0;
+    const ang = ((h % 360) / 180) * Math.PI;
+    const tx = Math.cos(ang);
+    const ty = Math.sin(ang);
+    const g = new Graphics();
+    g.ellipse(tx * 8 + 1, ty * 8 + 1.5, 7.5, 3.5).fill({ color: 0x000000, alpha: 0.15 });
+    g.moveTo(tx * 3, ty * 3)
+      .lineTo(tx * 13, ty * 13)
+      .stroke({ width: 3.4, color: PROPS.trunk });
+    g.moveTo(tx * 3.5 - ty * 0.7, ty * 3.5 + tx * 0.7)
+      .lineTo(tx * 12 - ty * 0.7, ty * 12 + tx * 0.7)
+      .stroke({ width: 1, color: ARMORY.WOOD, alpha: 0.8 });
+    g.circle(tx * 14 + 2, ty * 14 - 1, 2.4).fill({ color: PROPS.oak, alpha: 0.55 });
+    g.circle(tx * 12 - 2, ty * 12 + 2.5, 1.9).fill({ color: PROPS.oak, alpha: 0.45 });
+    g.circle(0, 0, 3).fill(PROPS.trunk);
+    g.circle(0, 0, 2.1).fill({ color: ARMORY.LEATHER, alpha: 0.95 });
+    g.circle(0, 0, 0.9).fill({ color: PROPS.trunk, alpha: 0.9 });
+    this.add(g, x, y, lifeMs, 1.0);
+  }
+
+  /** A collapsed cottage (G3): charred footprint, fallen beams, thatch. */
+  hutRuin(x: number, y: number, lifeMs: number): void {
+    const g = new Graphics();
+    g.rect(-7, -6, 14, 12).fill({ color: INK, alpha: 0.5 });
+    g.rect(-7, -6, 14, 12).stroke({ width: 1, color: PROPS.hutEdge, alpha: 0.8 });
+    g.moveTo(-6, -4).lineTo(5, 4).stroke({ width: 2, color: PROPS.hutEdge, alpha: 0.9 });
+    g.moveTo(6, -5).lineTo(-3, 3).stroke({ width: 1.6, color: PROPS.trunk, alpha: 0.85 });
+    g.circle(-4, 4.5, 1.6).fill({ color: PROPS.thatch, alpha: 0.6 });
+    g.circle(5.5, -1.5, 1.3).fill({ color: PROPS.thatch, alpha: 0.5 });
+    g.circle(1.5, 6, 1.2).fill({ color: PROPS.ruin, alpha: 0.7 });
+    this.add(g, x, y, lifeMs, 1.0);
+  }
+
   private add(g: Graphics, x: number, y: number, lifeMs: number, grow: number): void {
+    if (this.cap !== undefined && this.effects.length >= this.cap) {
+      const oldest = this.effects.shift()!;
+      oldest.gfx.destroy();
+    }
     g.position.set(x * TILE, y * TILE);
     this.container.addChild(g);
     this.effects.push({ gfx: g, bornMs: performance.now(), lifeMs, grow });

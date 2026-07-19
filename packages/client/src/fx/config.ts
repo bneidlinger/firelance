@@ -78,6 +78,10 @@ export const FX = {
     forestBreathPeriodMs: 1900,
     forestBreathBase: 0.88,
     forestBreathAmp: 0.08,
+    /** Mean ms between chimney wisps across all visible living huts (G3). */
+    hutSmokeEveryMs: 1400,
+    /** Huts only smoke within this range of the player (units). */
+    hutSmokeRange: 22,
   },
   movement: {
     /** Walk bob: radians of phase per world unit walked, and scale amplitude.
@@ -104,6 +108,17 @@ export const FX = {
      *  upper-left rim light. Alpha only — squad hue stays the whole torso. */
     shadeAlpha: 0.14,
     glintAlpha: 0.12,
+  },
+  architecture: {
+    /** G3: squad tint mixed into stone wall/gate/tower bodies — masonry that
+     *  BELONGS to a squad without being squad plastic. The bold squad edge
+     *  stays the primary friend-or-foe read. (0.24 read too neutral at 2×
+     *  distance on the live fort — 0.32 keeps the hue without losing stone.) */
+    squadTint: 0.32,
+    /** How long rubble/stump/ruin decals hold the field before fading out. */
+    rubbleLifeMs: 26000,
+    /** Decal pool bound — past it the oldest scar is dropped early. */
+    decalCap: 64,
   },
   grounding: {
     /** G1, the codex sun (NW — see render/palette.ts): universal strengths

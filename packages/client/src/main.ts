@@ -23,8 +23,10 @@ import {
   PHASE_LIVE,
   PHASE_PLACEMENT,
   STRUCT_GATE,
+  STRUCT_HUT,
   STRUCT_TOWER,
   STRUCT_TRAP,
+  STRUCT_TREE,
 } from '@shared/sim/world';
 import { canSeePoint } from '@shared/sim/vision';
 import { audioStats, sfx, unlockAudio } from './audio/sfx';
@@ -44,7 +46,7 @@ import { Hud, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
-import { SQUAD_COLORS, SQUAD_CSS, TIER_CSS } from './render/palette';
+import { ARMORY, PROPS, SQUAD_COLORS, SQUAD_CSS, TIER_CSS } from './render/palette';
 import { Scene } from './render/scene';
 import { StructureLayer } from './render/structures';
 import { initFrontDoor } from './ui/frontdoor';
@@ -131,6 +133,8 @@ interface GameState {
   lastBankQuarter: number;
   /** Water tile centers (M6 s4) — the shimmer emitter samples these. */
   waterTiles: Array<{ x: number; y: number }>;
+  /** Chimney anchors of visible living huts (G3) — the smoke emitter's list. */
+  visibleHuts: Array<{ x: number; y: number }>;
 }
 
 const roster = new Map<number, RosterEntry>();
@@ -597,7 +601,25 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'structDestroyed':
       game.fx.explosion(ev.x, ev.y);
-      game.particles.emit(ev.x, ev.y, { ...FX.emit.structChip, count: 14 });
+      // The countryside keeps the score (G3): kind-shaped scars on the decal
+      // layer — under structures, walked over, oldest fades first.
+      if (ev.kind === STRUCT_TREE) {
+        game.decals.stump(ev.x, ev.y, FX.architecture.rubbleLifeMs);
+        game.particles.emit(ev.x, ev.y, {
+          ...FX.emit.structChip,
+          colors: [PROPS.trunk, ARMORY.WOOD, PROPS.oak],
+          count: 10,
+        });
+      } else if (ev.kind === STRUCT_HUT) {
+        game.decals.hutRuin(ev.x, ev.y, FX.architecture.rubbleLifeMs);
+        for (let i = 0; i < 5; i++) game.particles.emit(ev.x, ev.y, FX.emit.smoke);
+        game.particles.emit(ev.x, ev.y, { ...FX.emit.structChip, count: 12 });
+      } else if (ev.kind !== STRUCT_TRAP) {
+        game.decals.rubblePile(ev.x, ev.y, FX.architecture.rubbleLifeMs);
+        game.particles.emit(ev.x, ev.y, { ...FX.emit.structChip, count: 14 });
+      } else {
+        game.particles.emit(ev.x, ev.y, { ...FX.emit.structChip, count: 8 });
+      }
       // The memory is certain now — no ghost should outlive the rubble.
       game.ghosts.forget(ev.id);
       break;
@@ -700,7 +722,8 @@ async function setupScene(
     fx: new FxLayer(scene.fxLayer),
     pings: new FxLayer(scene.pingLayer),
     floats: new FloatTextLayer(scene.pingLayer),
-    decals: new FxLayer(scene.decalLayer),
+    decals: new FxLayer(scene.decalLayer, FX.architecture.decalCap),
+    visibleHuts: [],
     ghosts: new GhostMemory(),
     fog: new FogLayer(scene.fogLayer, map, cfg),
     hud,
@@ -890,6 +913,10 @@ function frame(now: number): void {
   };
   const ghostList = game.ghosts.update(interp.structures, game.ownSquad, visibleTile);
   game.structures.sync(interp.structures, game.ownSquad, ghostList);
+  // Living huts on this snapshot: the chimney-smoke emitter's anchor list.
+  game.visibleHuts = interp.structures
+    .filter((st) => st.k === STRUCT_HUT)
+    .map((st) => ({ x: st.tx + 0.7, y: st.ty + 0.33 }));
   if (peekAt) scene.follow(peekAt.x, peekAt.y);
   else if (ownPos) scene.follow(ownPos.x, ownPos.y);
 
@@ -900,6 +927,7 @@ function frame(now: number): void {
   game.projectiles.frame(renderTick, now);
   game.bombs.frame(renderTick, now);
   game.keeps.frame(now);
+  game.structures.frame(now);
   game.fx.frame(now);
   game.decals.frame(now);
   game.particles.frame(now);
@@ -969,6 +997,13 @@ function frame(now: number): void {
     game.lastOwnTier = tier;
   }
   // ---- world life (M6 s4): the map moves a little even when nobody does.
+  // Living huts smoke gently (G3) — same rejection pattern as water glints.
+  if (ownPos && game.visibleHuts.length > 0 && Math.random() < dtMs / FX.world.hutSmokeEveryMs) {
+    const hut = game.visibleHuts[Math.floor(Math.random() * game.visibleHuts.length)]!;
+    if (Math.hypot(hut.x - ownPos.x, hut.y - ownPos.y) < FX.world.hutSmokeRange) {
+      game.particles.emit(hut.x, hut.y, FX.emit.smoke);
+    }
+  }
   scene.forestBreath(
     now,
     FX.world.forestBreathBase,
@@ -1255,6 +1290,7 @@ declare global {
       playerIdByName(name: string): number | null;
       visibleIds(): number[];
       phase(): number;
+      decalDemo(): boolean;
       stats(): Record<string, unknown>;
       pump(n?: number): boolean;
       shot(w?: number, h?: number, scale?: number): { len: number; w: number; h: number } | null;
@@ -1427,6 +1463,17 @@ window.__fl = {
     ...interp.sample(conn.estServerTick(performance.now()) - INTERP_DELAY_TICKS).keys(),
   ],
   phase: () => game?.phase ?? -1,
+  /** Stamp the G3 scar set (rubble/stump/hut-ruin) around the player —
+   *  destruction is rare on camera; this is the decal eyeball. */
+  decalDemo: () => {
+    if (!game) return false;
+    const p = window.__fl.selfPos();
+    if (!p) return false;
+    game.decals.rubblePile(p.x - 2.2, p.y - 1.2, FX.architecture.rubbleLifeMs);
+    game.decals.stump(p.x + 2.2, p.y - 1.2, FX.architecture.rubbleLifeMs);
+    game.decals.hutRuin(p.x, p.y + 2, FX.architecture.rubbleLifeMs);
+    return true;
+  },
   pump: flPump,
   shot: flShot,
   shotChunk: (i: number, size = 24000) =>
@@ -1449,7 +1496,12 @@ window.__fl = {
     // Juice-kit probes (M6 s1): pool health + audio gate counters. A soak
     // asserts `alive` returns to ~0 and `stolen` stays sane (no leak, no spam).
     fx: game
-      ? { particles: game.particles.stats(), floats: game.floats.stats(), audio: audioStats() }
+      ? {
+          particles: game.particles.stats(),
+          floats: game.floats.stats(),
+          audio: audioStats(),
+          decals: game.decals.count(),
+        }
       : null,
     you: latestYou
       ? {
