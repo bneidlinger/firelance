@@ -292,8 +292,8 @@ export class StructureLayer {
         color: base,
         alpha: 0.95,
       });
-      const y1 = 6 + (h % 3);
-      const y2 = 12 + ((h >> 3) % 3);
+      const y1 = TILE * 0.32 + (h % 3);
+      const y2 = TILE * 0.63 + ((h >> 3) % 3);
       g.moveTo(2, y1)
         .lineTo(TILE - 2, y1)
         .moveTo(2, y2)

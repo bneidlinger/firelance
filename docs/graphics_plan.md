@@ -1,6 +1,6 @@
 # Firelance Graphics Plan — the Vale earns its portrait
 
-> **Drafted:** 2026-07-18 · **Status:** G1–G4 shipped 2026-07-18 (G3 closed the Lived-In Vale interlude; G4 is the pre-playtest slice) · G5–G6 queued
+> **Drafted:** 2026-07-18 · **Status:** G1–G5 shipped 2026-07-18/19 (G3 closed the Lived-In Vale interlude; G5 bundled the TILE 19→23 zoom bump) · G6 queued
 > **Scope:** render-only. Zero sim, zero protocol, zero config-hash changes. Every slice ships alone.
 > **North star image:** `docs/media/conceptart1.png` (the Red Writ concept board)
 
@@ -302,6 +302,20 @@ meadows, cliffs; determinism check — reload twice, identical painting; F3 fps 
 static geometry in the two existing baked Graphics).
 Risk: low mechanics / medium taste. Pure additive bake; the danger is visual noise — the 19px
 budget (Law #7) is the editor. Anything that muddies a soldier's silhouette gets cut.
+
+**Shipped 2026-07-19 — bundled with a zoom bump (TILE 19 → 23, Brandon's call after real
+playtime).** Field notes: (1) roads route through a pre-scouted bridge ledger (the plank pass
+now draws from the same list) and refuse blocked tiles outright — no fords, no paint on
+water. Town↔town plus the four shortest site spurs: the vale's scale made a 32u spur limit
+paint almost nothing (corner sites sit ~55u out); 58u + shortest-four reads as worked land,
+not a web. (2) Meadows needed a density bump before they read (blocks %17→%11, tint
+0.05→0.09, flowers ×1.7). (3) The zoom rode through cleanly because characters are
+radius-relative and terrain is TILE-relative; the px-composed castle hall and bank scale via
+`S = TILE/19`, so their proportions carry to any future bump. (4) The deterministic
+meadow-block hash doubled as the verify tool — candidate blocks computed in-page, peeked
+directly. Wheat-by-huts was cut honestly: huts are sim props, unknown at bake time.
+Captures: `g5_town.png` (road arriving at the bank), `g5_meadow_*.png`, `g5_spur.png`,
+`g5_castle23.png` / `g5_soldier23.png` (zoom proportions).
 
 ---
 

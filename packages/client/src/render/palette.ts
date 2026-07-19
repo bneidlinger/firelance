@@ -67,6 +67,8 @@ export const TERRAIN = {
   road: 0x6a593c,
   roadWorn: 0x7d6a48,
   foam: 0x9db4c9,
+  flowerGold: 0xd8c66a,
+  flowerPale: 0xc9c2b4,
 };
 
 /** Gold is allowed to shout. */

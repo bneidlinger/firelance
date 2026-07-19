@@ -33,13 +33,15 @@ interface KeepSprite {
 }
 
 const BAR_W = 34;
-// Castle metrics (px; composed for TILE=19, ~3 tiles across).
+// Castle metrics (~3 tiles across). Composed at TILE=19; S carries the
+// px-tuned details through zoom bumps unchanged in proportion.
+const S = TILE / 19;
 const YARD_R = TILE * 1.42;
 const POST_D = YARD_R * 0.72;
 const POST = TILE * 0.3;
-const HALL_HW = 9;
-const HALL_TOP = -9;
-const HALL_BOT = 5;
+const HALL_HW = 9 * S;
+const HALL_TOP = -9 * S;
+const HALL_BOT = 5 * S;
 const POLE_H = TILE * 1.1;
 
 export class KeepLayer {
@@ -171,8 +173,8 @@ export class KeepLayer {
     g.moveTo(-HALL_HW, HALL_BOT - 0.6)
       .lineTo(HALL_HW, HALL_BOT - 0.6)
       .stroke({ width: 1.2, color: INK, alpha: FX.grounding.edgeShadeAlpha });
-    g.rect(-2.6, 1, 5.2, 4).fill(GOLD.trim);
-    g.rect(-2.6, 1, 5.2, 4).stroke({ width: 1, color: GOLD.keep });
+    g.rect(-2.6 * S, 1 * S, 5.2 * S, 4 * S).fill(GOLD.trim);
+    g.rect(-2.6 * S, 1 * S, 5.2 * S, 4 * S).stroke({ width: 1, color: GOLD.keep });
 
     // The siege, written on the masonry.
     if (frac <= 0.75) {
