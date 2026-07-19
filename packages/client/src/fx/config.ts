@@ -1,7 +1,7 @@
 // Every juice knob in one place (M6 s1). Client-render-side ONLY — GameConfig
 // stays sim-pure, and nothing in here may reach prediction, occupancy, or aim.
 
-import { INK } from '../render/palette';
+import { FIRE, GOLD, INK } from '../render/palette';
 
 export interface EmitSpec {
   /** Particles per emit call. */
@@ -20,12 +20,16 @@ export interface EmitSpec {
   gravity?: number;
   /** Velocity damping per second (0 = coasts forever, ~6 = dies on the spot). */
   drag?: number;
+  /** Composite with blendMode 'add' — routed to the G4 glow pool. */
+  additive?: boolean;
 }
 
 export const FX = {
   particles: {
     /** Fixed pool; when full, fresh bursts overwrite the oldest embers. */
     cap: 512,
+    /** The G4 glow pool (additive sparks/embers), same steal-oldest rules. */
+    capAdd: 256,
   },
   floatText: {
     pool: 12,
@@ -108,6 +112,20 @@ export const FX = {
      *  upper-left rim light. Alpha only — squad hue stays the whole torso. */
     shadeAlpha: 0.14,
     glintAlpha: 0.12,
+  },
+  arcade: {
+    /** G4 arcade light. Tracer dashes per arrow + the leading dash alpha. */
+    trailSegs: 3,
+    trailAlpha: 0.5,
+    /** Muzzle fan lifetime at a loose. */
+    muzzleMs: 90,
+    /** Bomb pressure-wave ring lifetime. */
+    blastRingMs: 340,
+    /** Mean ms between fuse sparks on a flying bomb. */
+    fuseSparkEveryMs: 90,
+    /** Writ-burst particle count: base + perTier × tier (Wanted+ only). */
+    writBurstBase: 8,
+    writBurstPerTier: 4,
   },
   architecture: {
     /** G3: squad tint mixed into stone wall/gate/tower bodies — masonry that
@@ -262,6 +280,50 @@ export const FX = {
       size: [1.2, 2.4],
       gravity: 16,
       drag: 1.5,
+    } as EmitSpec,
+    /** Fuse sputter riding a lobbed bomb (G4, additive). */
+    fuseSpark: {
+      count: 1,
+      colors: [FIRE.flame, GOLD.bright, 0xffffff],
+      speed: [0.3, 1.4],
+      life: [110, 240],
+      size: [1, 1.9],
+      gravity: -1.5,
+      drag: 2,
+      additive: true,
+    } as EmitSpec,
+    /** The blast's glowing embers, arcing to the ground (G4, additive). */
+    emberShower: {
+      count: 16,
+      colors: [FIRE.fire, FIRE.flame, FIRE.ember],
+      speed: [3, 9],
+      life: [300, 720],
+      size: [1.2, 2.6],
+      gravity: 10,
+      drag: 2.5,
+      additive: true,
+    } as EmitSpec,
+    /** Wanted+ kill pop — call sites override colors with the tier's. */
+    writBurst: {
+      count: 8,
+      colors: [0xffffff],
+      speed: [2, 6.5],
+      life: [260, 540],
+      size: [1.2, 2.3],
+      drag: 4,
+      additive: true,
+    } as EmitSpec,
+    /** A completed deposit sends a column of glints up over the bank (G4). */
+    goldPillar: {
+      count: 12,
+      colors: [GOLD.town, GOLD.bright, 0xffffff],
+      speed: [1.6, 3.6],
+      angle: [-Math.PI / 2 - 0.28, -Math.PI / 2 + 0.28],
+      life: [500, 950],
+      size: [1.1, 2],
+      gravity: -3,
+      drag: 1.4,
+      additive: true,
     } as EmitSpec,
   },
 };

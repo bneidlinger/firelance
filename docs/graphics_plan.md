@@ -1,6 +1,6 @@
 # Firelance Graphics Plan — the Vale earns its portrait
 
-> **Drafted:** 2026-07-18 · **Status:** G1–G3 shipped 2026-07-18 (G3 closes the Lived-In Vale interlude) · G4–G6 queued
+> **Drafted:** 2026-07-18 · **Status:** G1–G4 shipped 2026-07-18 (G3 closed the Lived-In Vale interlude; G4 is the pre-playtest slice) · G5–G6 queued
 > **Scope:** render-only. Zero sim, zero protocol, zero config-hash changes. Every slice ships alone.
 > **North star image:** `docs/media/conceptart1.png` (the Red Writ concept board)
 
@@ -257,6 +257,18 @@ moments; the melee strike frame + ranger reload get their owed live eyes; confir
 sits below fog (muzzle flashes must not leak through fog).
 Risk: medium-low. Additive blending is cheap; the discipline point is keeping counts small —
 every new emitter gets a knob in `fx/config.ts`, nothing hardcoded.
+
+**Shipped 2026-07-18.** Field notes: (1) the glow pool is a second `ParticlePool` + Graphics
+on `blendMode:'add'` — specs opt in via `additive`, separate cap (256) so glow can't starve
+matter (stats stay one summed shape). (2) Bolt-vs-arrow is a CONFIG fact, not a wire fact —
+classified by engineer kit speed. Bolts fly stubby steel with steel-blue tracers, arrows bone
+with warm ones; both + tip glows on one frame in `g4_arrows_zoom.png`, the full kit (blast
+ring, embers, writ pop, flashes, pillar) in `g4_lightkit.png`. (3) Verification pitfall:
+pumped frames share one wall-clock instant, so tracer history collapsed to zero-length dashes
+until pumps were spaced by real sleeps — live 60fps gameplay is unaffected by construction.
+(4) `__fl.arcadeDemo()` / `__fl.arrowDemo()` stamp the whole kit without needing a firefight.
+Unstaged live (ritual covers both): a bomb's fuse-sputter+ring in real flight, and the
+Crownmarked gold rain.
 
 ---
 

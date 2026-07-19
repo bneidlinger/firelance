@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { FX } from '../fx/config';
 import { TILE } from './scene';
 
 // Firebomb rendering on the delayed interp timeline: a lobbed dot that rises
@@ -15,6 +16,8 @@ interface FlyingBomb {
   bornTick: number;
   flightTicks: number;
   gone: boolean;
+  /** Last fuse-spark timestamp (G4) — the lob sputters as it flies. */
+  lastSparkMs: number;
   root: Container;
   dot: Graphics;
   shadow: Graphics;
@@ -27,6 +30,8 @@ export class BombLayer {
   constructor(
     private readonly container: Container,
     private readonly blastRadius: number,
+    /** Fuse sputter hook (G4) — main routes it into the glow pool. */
+    private readonly onSpark?: (x: number, y: number) => void,
   ) {}
 
   clear(): void {
@@ -72,6 +77,7 @@ export class BombLayer {
       bornTick: ev.tk,
       flightTicks: ev.flightTicks,
       gone: false,
+      lastSparkMs: 0,
       root,
       dot,
       shadow,
@@ -99,6 +105,11 @@ export class BombLayer {
       const height = Math.sin(clamped * Math.PI) * 1.6 * TILE;
       b.shadow.position.set(gx, gy);
       b.dot.position.set(gx, gy - height);
+      // Fuse sputter (G4): warm sparks trace the lob through the air.
+      if (this.onSpark && nowMs - b.lastSparkMs > FX.arcade.fuseSparkEveryMs) {
+        b.lastSparkMs = nowMs;
+        this.onSpark(gx / TILE, (gy - height) / TILE);
+      }
       b.danger.alpha = 0.5 + 0.5 * Math.sin(nowMs / 90); // urgent pulse
     }
   }

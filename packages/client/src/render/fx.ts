@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { FX } from '../fx/config';
 import { ARMORY, INK, PROPS, TERRAIN } from './palette';
 import { TILE } from './scene';
 
@@ -159,6 +160,43 @@ export class FxLayer {
     g.circle(5.5, -1.5, 1.3).fill({ color: PROPS.thatch, alpha: 0.5 });
     g.circle(1.5, 6, 1.2).fill({ color: PROPS.ruin, alpha: 0.7 });
     this.add(g, x, y, lifeMs, 1.0);
+  }
+
+  /** Additive flash disc (G4): block clangs, trap snaps, writ pops. Never a
+   *  filter — stacked alpha discs on blendMode 'add' ARE the glow. */
+  flash(x: number, y: number, r: number, color: number, lifeMs: number): void {
+    const g = new Graphics();
+    g.blendMode = 'add';
+    g.circle(0, 0, r).fill({ color, alpha: 0.5 });
+    g.circle(0, 0, r * 0.45).fill({ color: 0xffffff, alpha: 0.45 });
+    this.add(g, x, y, lifeMs, 1.5);
+  }
+
+  /** Additive expanding ring — the bomb's pressure wave (G4). */
+  blastRing(x: number, y: number, r: number, color: number, lifeMs: number): void {
+    const g = new Graphics();
+    g.blendMode = 'add';
+    g.circle(0, 0, r).stroke({ width: 3, color, alpha: 0.7 });
+    g.circle(0, 0, r * 0.7).stroke({ width: 1.5, color: 0xffffff, alpha: 0.4 });
+    this.add(g, x, y, lifeMs, 2.6);
+  }
+
+  /** Additive muzzle fan at a loose (G4) — the shot's birth certificate.
+   *  Warm for arrows, steel-blue for bolts. */
+  muzzleFlash(x: number, y: number, dx: number, dy: number, color: number): void {
+    const g = new Graphics();
+    g.blendMode = 'add';
+    const a = Math.atan2(dy, dx);
+    for (const spread of [-0.35, 0, 0.35]) {
+      const len = spread === 0 ? 9 : 6.5;
+      g.moveTo(Math.cos(a + spread) * 2, Math.sin(a + spread) * 2).lineTo(
+        Math.cos(a + spread) * len,
+        Math.sin(a + spread) * len,
+      );
+    }
+    g.stroke({ width: 2, color, alpha: 0.65 });
+    g.circle(dx * 2.5, dy * 2.5, 2.2).fill({ color: 0xffffff, alpha: 0.5 });
+    this.add(g, x, y, FX.arcade.muzzleMs, 1.35);
   }
 
   private add(g: Graphics, x: number, y: number, lifeMs: number, grow: number): void {

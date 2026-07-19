@@ -46,7 +46,15 @@ import { Hud, TIER_NAMES } from './render/hud';
 import { KeepLayer } from './render/keeps';
 import { ProjectileLayer } from './render/projectiles';
 import { SackLayer } from './render/sacks';
-import { ARMORY, PROPS, SQUAD_COLORS, SQUAD_CSS, TIER_CSS } from './render/palette';
+import {
+  ARMORY,
+  FIRE,
+  PROPS,
+  SQUAD_COLORS,
+  SQUAD_CSS,
+  TIER_COLORS,
+  TIER_CSS,
+} from './render/palette';
 import { Scene } from './render/scene';
 import { StructureLayer } from './render/structures';
 import { initFrontDoor } from './ui/frontdoor';
@@ -349,7 +357,13 @@ function handleEvent(ev: NetEvent): void {
       break;
     case 'projSpawn':
       game.projectiles.onSpawn(ev, game.ownId);
-      if (ev.owner !== game.ownId) sfx('shoot', { x: ev.x, y: ev.y }, listener);
+      if (ev.owner !== game.ownId) {
+        // The shot's birth certificate (G4): warm fan for arrows, steel for
+        // bolts. Own shots flash at the predicted muzzle instead.
+        const bolt = Math.abs(ev.speed - (getKit(game.cfg, 'engineer').bow?.speed ?? -1)) < 0.001;
+        game.fx.muzzleFlash(ev.x, ev.y, ev.dx, ev.dy, bolt ? ARMORY.SHIELD_RAISED : FIRE.flame);
+        sfx('shoot', { x: ev.x, y: ev.y }, listener);
+      }
       break;
     case 'projEnd':
       game.projectiles.onEnd(ev);
@@ -370,6 +384,7 @@ function handleEvent(ev: NetEvent): void {
       // red spray off flesh — the fight is readable without the hp bars.
       if (ev.blocked) {
         game.particles.emit(ev.x, ev.y, FX.emit.blockWedge);
+        game.fx.flash(ev.x, ev.y, 7, ARMORY.SHIELD_RAISED, 110); // the clang, lit
       } else if (ev.kind === 'arrow') {
         game.particles.emit(ev.x, ev.y, FX.emit.arrowFlesh);
       } else if (ev.kind === 'melee') {
@@ -403,6 +418,18 @@ function handleEvent(ev: NetEvent): void {
         game.fx.death(pos.x, pos.y, c);
         // The body breaks into shards of its own color.
         game.particles.emit(pos.x, pos.y, { ...FX.emit.deathShatter, colors: [c, c, 0xffffff] });
+        // The reward LOOKS like the number it pays (G4): Wanted+ pops a
+        // writ-burst in tier color; a Crownmarked head rains gold on top.
+        const tier = bountyTier(game.cfg, ev.victimBounty);
+        if (tier >= 2) {
+          game.fx.flash(pos.x, pos.y, 8 + tier * 2, TIER_COLORS[tier] ?? 0xffffff, 190 + tier * 40);
+          game.particles.emit(pos.x, pos.y, {
+            ...FX.emit.writBurst,
+            colors: [TIER_COLORS[tier] ?? 0xffffff, TIER_COLORS[tier] ?? 0xffffff, 0xffffff],
+            count: FX.arcade.writBurstBase + tier * FX.arcade.writBurstPerTier,
+          });
+          if (tier >= 5) game.particles.emit(pos.x, pos.y, FX.emit.coinBurst);
+        }
       }
       // Bounty made visible where it was earned. Only where we SAW the hit —
       // lastHitPos is fed by positionally-filtered events, so this can't leak
@@ -436,6 +463,7 @@ function handleEvent(ev: NetEvent): void {
       // public geography — floating the amount over fog reveals nothing new.
       game.floats.show(ev.x, ev.y, `+${ev.amount}g banked`, 0xf2d68c);
       game.particles.emit(ev.x, ev.y, FX.emit.coinBurst);
+      game.particles.emit(ev.x, ev.y, FX.emit.goldPillar); // score, visible afar (G4)
       if (ev.squad === game.ownSquad) {
         sfx('banked'); // your gold is SAFE — full-volume payoff chime
         game.hud.toast(`${ev.amount}g banked — it's safe`);
@@ -487,6 +515,9 @@ function handleEvent(ev: NetEvent): void {
     case 'bombEnd':
       game.bombs.onEnd(ev.id);
       game.fx.explosion(ev.x, ev.y);
+      // The theatrics (G4): a pressure ring + glowing embers over the scar.
+      game.fx.blastRing(ev.x, ev.y, 9, FIRE.fire, FX.arcade.blastRingMs);
+      game.particles.emit(ev.x, ev.y, FX.emit.emberShower);
       game.decals.scorch(ev.x, ev.y);
       sfx('bombBoom', { x: ev.x, y: ev.y }, listener);
       break;
@@ -511,6 +542,8 @@ function handleEvent(ev: NetEvent): void {
         game.keeps.update(ev.squad, info.x, info.y, 0);
       }
       game.fx.explosion(ev.x, ev.y, true);
+      game.fx.blastRing(ev.x, ev.y, 14, FIRE.fire, 520); // a map-sized shockwave
+      game.particles.emit(ev.x, ev.y, { ...FX.emit.emberShower, count: 26 });
       game.decals.scorch(ev.x, ev.y, true); // the scar outlives the rubble
       sfx('keepFall'); // a map event — thunder for everyone
       const names = ['Red', 'Blue', 'Green', 'Gold'];
@@ -631,7 +664,8 @@ function handleEvent(ev: NetEvent): void {
       // Iron jaws, not fire: metal-and-rust burst + a rust ring. The generic
       // explosion read as a bomb and lied about what happened.
       game.particles.emit(ev.x, ev.y, FX.emit.trapJaws);
-      game.fx.respawnRing(ev.x, ev.y, 0xd8543e);
+      game.fx.flash(ev.x, ev.y, 8, FIRE.ember, 130); // the snap, lit (G4)
+      game.fx.respawnRing(ev.x, ev.y, FIRE.ember);
       if (ev.victim === game.ownId) {
         sfx('trapSnap'); // it's around YOUR leg — full volume
         game.hud.alarm('⚠ SNARED ⚠');
@@ -709,14 +743,21 @@ async function setupScene(
     phaseEndsTick: welcome.phaseEndsTick,
     prediction: new Prediction(cfg, map),
     entities: new EntityLayer(scene.entityLayer, cfg),
-    projectiles: new ProjectileLayer(scene.projectileLayer, welcome.tickRate),
+    // Bolt-vs-arrow is a CONFIG fact, not a wire fact: classify by kit speed.
+    projectiles: new ProjectileLayer(
+      scene.projectileLayer,
+      welcome.tickRate,
+      (spd) => Math.abs(spd - (getKit(cfg, 'engineer').bow?.speed ?? -1)) < 0.001,
+    ),
     sacks: new SackLayer(scene.sackLayer),
     // Chip dust on hp drops the snapshot diff detects — no wire event exists
     // for structure hits, and none is needed.
     structures: new StructureLayer(scene.structureLayer, (x, y) =>
       game?.particles.emit(x, y, FX.emit.structChip),
     ),
-    bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius),
+    bombs: new BombLayer(scene.bombLayer, cfg.firebomb.radius, (x, y) =>
+      game?.particles.emit(x, y, FX.emit.fuseSpark),
+    ),
     keeps: new KeepLayer(scene.keepLayer, cfg.keep.maxHp, cfg.banking.interactRadius),
     particles: new ParticleLayer(scene.fxLayer),
     fx: new FxLayer(scene.fxLayer),
@@ -1249,6 +1290,7 @@ function sampleAndSendInput(now: number): void {
   ) {
     if (kit.bow) {
       const off = game.cfg.player.radius + kit.bow.radius + 0.05;
+      const warm = cls !== 'engineer';
       game.projectiles.spawnGhost(
         pState.x + ax * off,
         pState.y + ay * off,
@@ -1256,6 +1298,14 @@ function sampleAndSendInput(now: number): void {
         ay,
         kit.bow.speed,
         kit.bow.ttlSec,
+        warm,
+      );
+      game.fx.muzzleFlash(
+        pState.x + ax * off,
+        pState.y + ay * off,
+        ax,
+        ay,
+        warm ? FIRE.flame : ARMORY.SHIELD_RAISED,
       );
       game.predictedAtkCd = secToTicks(game.cfg, kit.bow.cooldownSec);
       sfx('shoot');
@@ -1290,6 +1340,8 @@ declare global {
       playerIdByName(name: string): number | null;
       visibleIds(): number[];
       phase(): number;
+      arcadeDemo(): boolean;
+      arrowDemo(): boolean;
       decalDemo(): boolean;
       stats(): Record<string, unknown>;
       pump(n?: number): boolean;
@@ -1463,6 +1515,39 @@ window.__fl = {
     ...interp.sample(conn.estServerTick(performance.now()) - INTERP_DELAY_TICKS).keys(),
   ],
   phase: () => game?.phase ?? -1,
+  /** Stamp the G4 light kit around the player (long-ish lives so a single
+   *  pumped frame catches all of it): muzzle fans warm/steel, block + trap
+   *  flashes, blast ring + embers, a writ pop, a gold pillar. */
+  arcadeDemo: () => {
+    if (!game) return false;
+    const p = window.__fl.selfPos();
+    if (!p) return false;
+    game.fx.muzzleFlash(p.x - 2.5, p.y - 1.5, 1, 0, FIRE.flame);
+    game.fx.muzzleFlash(p.x - 2.5, p.y - 0.5, 1, 0, ARMORY.SHIELD_RAISED);
+    game.fx.flash(p.x + 2.5, p.y - 1.2, 7, ARMORY.SHIELD_RAISED, 400);
+    game.fx.flash(p.x + 2.6, p.y + 0.3, 8, FIRE.ember, 400);
+    game.fx.blastRing(p.x, p.y + 2.2, 9, FIRE.fire, 700);
+    game.particles.emit(p.x, p.y + 2.2, FX.emit.emberShower);
+    game.particles.emit(p.x - 2.2, p.y + 1.6, FX.emit.goldPillar);
+    game.particles.emit(p.x + 1.8, p.y - 2.4, {
+      ...FX.emit.writBurst,
+      colors: [TIER_COLORS[4] ?? 0xffffff, 0xffffff],
+      count: 20,
+    });
+    return true;
+  },
+  /** Launch one warm arrow + one steel bolt as unconfirmed ghosts flying +x
+   *  from beside the player — they live ~500ms, long enough to pump real-time
+   *  frames and photograph tracers/tips without needing a live firefight. */
+  arrowDemo: () => {
+    if (!game) return false;
+    const p = window.__fl.selfPos();
+    if (!p) return false;
+    const bow = getKit(game.cfg, 'ranger').bow!;
+    game.projectiles.spawnGhost(p.x - 3, p.y - 2.2, 1, 0, bow.speed, 1.2, true);
+    game.projectiles.spawnGhost(p.x - 3, p.y + 2.2, 1, 0, bow.speed * 0.85, 1.2, false);
+    return true;
+  },
   /** Stamp the G3 scar set (rubble/stump/hut-ruin) around the player —
    *  destruction is rare on camera; this is the decal eyeball. */
   decalDemo: () => {

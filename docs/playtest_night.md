@@ -37,6 +37,7 @@ standing rule. Join, then walk through:
 - [ ] **Keeps**: cracks at 75/50/25, smoke when critical, destruction is a MOMENT (banner + horn + scar)
 - [ ] **Architecture (G-series)**: keeps are castles with waving banners; walls read as coursed stone wearing YOUR squad's edge; your gates hang AJAR (enemy's closed); towers fly mini-pennants
 - [ ] **The lived-in Vale**: 3 swings fell a tree → stump + fallen trunk stay; a firebomb flattens a hut → charred ruin + smoke; living huts near you smoke from the chimney; dead walls leave masonry
+- [ ] **Arcade light (G4)**: arrows tow warm tracers, engineer bolts steel-blue ones (tell them apart in flight); muzzles flash at the loose; bombs sputter in the air and blast with a ring + embers; a Wanted+ kill pops in its tier color; a deposit sends a gold pillar up over the bank
 - [ ] **Banking**: channel plucks rise in pitch; completed deposit fountains gold; "+Ng banked" floats
 - [ ] **Bounty**: tier-up moment lands ("★ WANTED ★"), rumor pings + compass lines make you LOOK
 - [ ] **Alarm**: keep hit → edge-of-screen arrow points HOME correctly
