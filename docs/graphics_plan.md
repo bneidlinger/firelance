@@ -1,6 +1,6 @@
 # Firelance Graphics Plan — the Vale earns its portrait
 
-> **Drafted:** 2026-07-18 · **Status:** G1 shipped 2026-07-18 · G2–G6 queued
+> **Drafted:** 2026-07-18 · **Status:** G1–G2 shipped 2026-07-18 · G3–G6 queued
 > **Scope:** render-only. Zero sim, zero protocol, zero config-hash changes. Every slice ships alone.
 > **North star image:** `docs/media/conceptart1.png` (the Red Writ concept board)
 
@@ -163,6 +163,18 @@ Verify: claim → build → siege → ruin → rebuild loop against bots; screen
 tier; confirm pennant read at max camera distance; fog/ghost variants still render dimmed.
 Risk: medium-low. Pure draw code, but the keep marker carries a lot of meaning — keep the
 ring + hp bar exactly where they are.
+
+**Shipped 2026-07-18.** Field notes: (1) Pixi `arc()` chains onto the open path — a
+decorative arc after any shape drags a connector line across the drawing unless you `moveTo`
+its start first (found as a pale streak across every courtyard; same fix applied to G1's
+tower arc and the character glint). (2) `applyVariant` trims `map.keeps`/`map.towns` to the
+ACTIVE set — foundations and banks only bake for sites that exist this match, which is
+correct and free, but verify shots must use the current variant's coords (a mid-verify
+auto-restart swapped the active towns out from under the first pass). (3) The pennant needed
+growing (mast 1.1×TILE, banner 0.75×TILE) before it read at distance; wave proven live with
+two pumps 900ms apart. The helper lives in `render/pennant.ts` for G3's towers. Ruin and
+mid-damage tiers shipped code-reviewed but unstaged — the first real siege is their eyeball;
+captures in `docs/media/g2_*.png`.
 
 ---
 

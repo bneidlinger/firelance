@@ -1,5 +1,6 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { MapData } from '@shared/map/types';
+import { FX } from '../fx/config';
 import { GOLD, INK, SQUAD_COLORS, TERRAIN as COLORS } from './palette';
 
 // Pixi scene: a world container (scaled TILE px per world unit) holding the
@@ -329,21 +330,63 @@ export class Scene {
     // marks unclaimed SITES faintly (rebuild spots).
     const poi = new Graphics();
     for (const k of map.keeps) {
+      // Unclaimed keep sites (G2): faint foundation stones — a place waiting
+      // for a castle, quieter than any claimed keep. The whisper of a ring
+      // stays as the rebuild-channel hint.
+      const kx = k.x * TILE;
+      const ky = k.y * TILE;
+      const d = TILE * 0.75;
+      for (const [sx, sy] of [
+        [-d, -d],
+        [d, -d],
+        [-d, d],
+        [d, d],
+      ] as Array<[number, number]>) {
+        poi.rect(kx + sx - 2.5, ky + sy - 2.5, 5, 5).fill({ color: COLORS.stone, alpha: 0.35 });
+        poi.rect(kx + sx - 2.5, ky + sy - 2.5, 5, 5).stroke({ width: 1, color: INK, alpha: 0.3 });
+      }
+      poi.rect(kx - 6, ky - 6, 12, 12).stroke({ width: 1.2, color: COLORS.stone, alpha: 0.3 });
       poi
-        .circle(k.x * TILE, k.y * TILE, interactRadius * TILE * 0.55)
-        .stroke({ width: 1.5, color: GOLD.keep, alpha: 0.22 });
+        .circle(kx, ky, interactRadius * TILE * 0.55)
+        .stroke({ width: 1.2, color: GOLD.keep, alpha: 0.12 });
     }
     for (const t of map.towns) {
-      // A bank: gold square vault + coin dot, inside its interact circle.
-      // (Sized off TILE — these were designed at 12px/tile and stayed there.)
-      const vw = TILE * 0.58;
-      poi.rect(t.x * TILE - vw / 2, t.y * TILE - vw / 2, vw, vw).fill(GOLD.town);
+      // The bank (G2): a stone front with a gold-trimmed vault door and a
+      // hanging coin sign — the same gold-anchored silhouette as the old
+      // square, so banking wayfinding doesn't move. The interact circle
+      // stays the whole tutorial: stand inside the gold ring.
+      const tx = t.x * TILE;
+      const ty = t.y * TILE;
+      poi.ellipse(tx + 2, ty + 5.5, TILE * 0.58, TILE * 0.2).fill({
+        color: 0x000000,
+        alpha: FX.grounding.shadowAlpha,
+      });
+      poi.rect(tx - 9.5, ty - 7.5, 19, 13).fill(COLORS.rockLit);
+      poi.rect(tx - 9.5, ty - 7.5, 19, 13).stroke({ width: 1.2, color: INK, alpha: 0.7 });
       poi
-        .rect(t.x * TILE - vw / 2, t.y * TILE - vw / 2, vw, vw)
-        .stroke({ width: 2, color: GOLD.trim });
-      poi.circle(t.x * TILE, t.y * TILE, TILE * 0.16).fill(GOLD.trim);
+        .moveTo(tx - 8.5, ty - 6.2)
+        .lineTo(tx + 8.5, ty - 6.2)
+        .stroke({ width: 1.2, color: 0xffffff, alpha: FX.grounding.edgeLitAlpha });
       poi
-        .circle(t.x * TILE, t.y * TILE, interactRadius * TILE)
+        .moveTo(tx - 8.5, ty - 4.4)
+        .lineTo(tx + 8.5, ty - 4.4)
+        .stroke({ width: 2, color: GOLD.keep, alpha: 0.95 });
+      poi.rect(tx - 2.8, ty - 1, 5.6, 6.5).fill(GOLD.town);
+      poi.rect(tx - 2.8, ty - 1, 5.6, 6.5).stroke({ width: 1.2, color: GOLD.trim });
+      poi.circle(tx, ty + 1.8, 1.1).fill(GOLD.trim);
+      poi
+        .moveTo(tx + 8.5, ty - 4.5)
+        .lineTo(tx + 12, ty - 4.5)
+        .stroke({ width: 1.2, color: INK, alpha: 0.8 });
+      poi.rect(tx + 9.6, ty - 4, 4.6, 4.6).fill(GOLD.town);
+      poi.rect(tx + 9.6, ty - 4, 4.6, 4.6).stroke({ width: 1, color: GOLD.trim });
+      poi.circle(tx + 11.9, ty - 1.7, 1.2).fill(GOLD.trim);
+      poi
+        .moveTo(tx - 8, ty + 5)
+        .lineTo(tx + 8, ty + 5)
+        .stroke({ width: 1.2, color: INK, alpha: FX.grounding.edgeShadeAlpha });
+      poi
+        .circle(tx, ty, interactRadius * TILE)
         .stroke({ width: 2.5, color: GOLD.town, alpha: 0.75 });
     }
     map.spawns.forEach((s, squad) => {

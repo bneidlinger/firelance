@@ -181,11 +181,12 @@ export class StructureLayer {
         color: base,
         alpha: 0.95,
       });
-      g.arc(TILE / 2, TILE / 2, TILE / 2 - 2.2, -Math.PI * 0.95, -Math.PI * 0.4).stroke({
-        width: 1.2,
-        color: 0xffffff,
-        alpha: FX.grounding.edgeLitAlpha,
-      });
+      // moveTo first — arc() chains onto the open path (connector-line bug).
+      const ta0 = -Math.PI * 0.95;
+      const tr = TILE / 2 - 2.2;
+      g.moveTo(TILE / 2 + Math.cos(ta0) * tr, TILE / 2 + Math.sin(ta0) * tr)
+        .arc(TILE / 2, TILE / 2, tr, ta0, -Math.PI * 0.4)
+        .stroke({ width: 1.2, color: 0xffffff, alpha: FX.grounding.edgeLitAlpha });
       g.moveTo(2.5, 2.5)
         .lineTo(TILE - 2.5, TILE - 2.5)
         .moveTo(TILE - 2.5, 2.5)

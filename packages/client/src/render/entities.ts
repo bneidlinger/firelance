@@ -162,11 +162,15 @@ export class EntityLayer {
       .arc(0, 0, r * 0.55, Math.PI * 0.7, -Math.PI * 0.2, true)
       .closePath()
       .fill({ color: 0x000000, alpha: FX.character.shadeAlpha });
-    sun.arc(0, 0, r * 0.78, -Math.PI * 0.9, -Math.PI * 0.45).stroke({
-      width: r * 0.16,
-      color: 0xffffff,
-      alpha: FX.character.glintAlpha,
-    });
+    const ga0 = -Math.PI * 0.9;
+    sun
+      .moveTo(Math.cos(ga0) * r * 0.78, Math.sin(ga0) * r * 0.78)
+      .arc(0, 0, r * 0.78, ga0, -Math.PI * 0.45)
+      .stroke({
+        width: r * 0.16,
+        color: 0xffffff,
+        alpha: FX.character.glintAlpha,
+      });
     root.addChild(sun);
 
     const hpBg = new Graphics();
