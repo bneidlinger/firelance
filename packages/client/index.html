@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Firelance</title>
     <style>
+      /* G6 chrome: the codex speaks CSS. Iron-and-wood panels under a gold
+         pinstripe, parchment text, wax accents — AoE2's soul, our palette.
+         Colors mirror render/palette.ts (the codex is the source of truth). */
+      :root {
+        --ink: #14170f;
+        --parchment: #f4ead8;
+        --khaki: #b9ad98;
+        --gold: #d5aa54;
+        --gold-bright: #f2d68c;
+        --wax: #f05a4d;
+        --panel-edge: #443c2b;
+        --panel-bg: linear-gradient(180deg, rgba(33, 29, 21, 0.92), rgba(20, 18, 13, 0.92));
+        --pin: inset 0 0 0 1px rgba(213, 170, 84, 0.2);
+        --pin-strong: inset 0 0 0 1px rgba(213, 170, 84, 0.45);
+      }
       html,
       body {
         margin: 0;
@@ -30,7 +45,7 @@
       }
       .hud {
         position: fixed;
-        color: #f4ead8;
+        color: var(--parchment);
         pointer-events: none;
         z-index: 10;
         text-shadow: 0 1px 3px #000;
@@ -38,11 +53,13 @@
       #overlay {
         top: 8px;
         left: 8px;
-        background: rgba(0, 0, 0, 0.65);
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow: var(--pin);
         padding: 8px 10px;
         font-size: 12px;
         line-height: 1.5;
-        border-radius: 6px;
+        border-radius: 5px;
         white-space: pre;
         display: none;
       }
@@ -51,11 +68,22 @@
         left: 0;
         right: 0;
         text-align: center;
-        color: #f05a4d;
-        font-size: 28px;
+        color: var(--wax);
+        font-size: 27px;
         font-weight: bold;
+        letter-spacing: 3px;
         display: none;
         z-index: 20;
+      }
+      /* The concept board's framing: thin gold rules above and below. */
+      #banner::before,
+      #banner::after {
+        content: '';
+        display: block;
+        width: 300px;
+        height: 1px;
+        margin: 8px auto;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
       }
       #topbar {
         top: 8px;
@@ -67,19 +95,22 @@
       #topbar .timer {
         font-size: 20px;
         font-weight: bold;
-        letter-spacing: 1px;
+        letter-spacing: 2px;
+        color: var(--parchment);
       }
       #topbar .squads {
-        margin-top: 2px;
+        margin-top: 3px;
         display: flex;
-        gap: 10px;
+        gap: 8px;
         justify-content: center;
         font-size: 12px;
       }
       #topbar .squads span {
-        padding: 1px 8px;
+        padding: 2px 9px;
         border-radius: 4px;
-        background: rgba(0, 0, 0, 0.5);
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow: var(--pin);
       }
       #killfeed {
         top: 64px;
@@ -88,26 +119,48 @@
         font-size: 12px;
         line-height: 1.7;
       }
+      /* Ledger entries: each line filed against the gold rule. */
       #killfeed div {
-        background: rgba(0, 0, 0, 0.45);
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        border-right: 2px solid rgba(213, 170, 84, 0.5);
         padding: 1px 8px;
-        border-radius: 4px;
+        border-radius: 4px 2px 2px 4px;
         margin-bottom: 3px;
         transition: opacity 0.6s;
       }
+      /* The bounty board is a hung writ: wax seal, gold rule, parchment ink. */
       #board {
         top: 64px;
         left: 10px;
         font-size: 12px;
         line-height: 1.6;
-        background: rgba(0, 0, 0, 0.45);
-        padding: 6px 10px;
-        border-radius: 6px;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow:
+          var(--pin),
+          0 2px 10px rgba(0, 0, 0, 0.45);
+        padding: 7px 11px;
+        border-radius: 5px;
         min-width: 170px;
       }
       #board .hdr {
-        color: #d5aa54;
+        color: var(--gold);
         font-weight: bold;
+        letter-spacing: 2px;
+        border-bottom: 1px solid rgba(213, 170, 84, 0.35);
+        padding-bottom: 4px;
+        margin-bottom: 4px;
+      }
+      #board .hdr::before {
+        content: '';
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, var(--wax), #8e2b1f);
+        box-shadow: 0 0 5px rgba(240, 90, 77, 0.55);
+        margin-right: 7px;
       }
       #selfbar {
         bottom: 14px;
@@ -122,8 +175,9 @@
       #hpwrap {
         width: 260px;
         height: 14px;
-        background: rgba(0, 0, 0, 0.6);
-        border: 1px solid #3a3f33;
+        background: linear-gradient(180deg, #0c0a07, #191510);
+        border: 1px solid var(--panel-edge);
+        box-shadow: var(--pin);
         border-radius: 4px;
         overflow: hidden;
       }
@@ -137,9 +191,19 @@
         display: flex;
         gap: 14px;
         align-items: center;
-        background: rgba(0, 0, 0, 0.45);
-        padding: 2px 10px;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow: var(--pin);
+        padding: 3px 11px;
         border-radius: 4px;
+      }
+      /* The class chip: your writ-poster portrait, one glyph big. */
+      #selfclass {
+        background: rgba(213, 170, 84, 0.12);
+        border: 1px solid rgba(213, 170, 84, 0.45);
+        border-radius: 3px;
+        padding: 0 7px;
+        color: var(--gold-bright);
       }
       #dash.ready {
         color: #8fae6a;
@@ -170,30 +234,50 @@
       }
       #endscreen {
         inset: 0;
-        background: rgba(10, 12, 8, 0.82);
+        background: rgba(10, 12, 8, 0.84);
         display: none;
         z-index: 30;
         text-align: center;
         padding-top: 12vh;
       }
       #endscreen h1 {
-        color: #d5aa54;
+        color: var(--gold);
         font-size: 34px;
+        letter-spacing: 4px;
         margin: 0 0 18px;
+      }
+      #endscreen h1::after {
+        content: '';
+        display: block;
+        width: 340px;
+        height: 1px;
+        margin: 10px auto 0;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
       }
       #endscreen table {
         margin: 0 auto;
         border-collapse: collapse;
         font-size: 16px;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow:
+          var(--pin),
+          0 4px 18px rgba(0, 0, 0, 0.5);
+        border-radius: 6px;
       }
       #endscreen td,
       #endscreen th {
-        padding: 4px 18px;
+        padding: 5px 18px;
         text-align: left;
+      }
+      #endscreen th {
+        color: var(--gold);
+        letter-spacing: 1px;
+        border-bottom: 1px solid rgba(213, 170, 84, 0.3);
       }
       #endscreen .restart {
         margin-top: 22px;
-        color: #b9ad98;
+        color: var(--khaki);
         font-size: 14px;
       }
       #toast {
@@ -235,8 +319,9 @@
       #bankwrap {
         width: 260px;
         height: 7px;
-        background: rgba(0, 0, 0, 0.6);
+        background: linear-gradient(180deg, #0c0a07, #191510);
         border: 1px solid #7a6544;
+        box-shadow: var(--pin);
         border-radius: 4px;
         overflow: hidden;
         display: none;
@@ -256,7 +341,8 @@
         text-align: center;
         font-size: 20px;
         font-weight: bold;
-        color: #f05a4d;
+        letter-spacing: 3px;
+        color: var(--wax);
         text-shadow: 0 0 12px rgba(240, 90, 77, 0.7);
         opacity: 0;
         transition: opacity 0.3s;
@@ -284,8 +370,11 @@
       #settings {
         bottom: 44px;
         right: 10px;
-        background: rgba(0, 0, 0, 0.78);
-        border: 1px solid #3a3f33;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow:
+          var(--pin),
+          0 4px 14px rgba(0, 0, 0, 0.5);
         border-radius: 6px;
         padding: 10px 14px;
         font-size: 12px;
@@ -294,9 +383,12 @@
         z-index: 40;
       }
       #settings .hdr {
-        color: #d5aa54;
+        color: var(--gold);
         font-weight: bold;
-        margin-bottom: 6px;
+        letter-spacing: 2px;
+        border-bottom: 1px solid rgba(213, 170, 84, 0.3);
+        padding-bottom: 4px;
+        margin-bottom: 7px;
       }
       #settings label {
         display: flex;
@@ -321,7 +413,8 @@
         cursor: pointer;
         font-size: 15px;
         opacity: 0.55;
-        background: rgba(0, 0, 0, 0.45);
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
         border-radius: 4px;
         padding: 2px 7px;
         z-index: 40;
@@ -351,18 +444,42 @@
         z-index: 60;
         text-align: center;
       }
+      /* The key art (G6): a procedural dusk painted behind the door — the
+         canvas sits at z 0, everything else rides above it. */
+      #doorart {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+      }
+      #frontdoor > :not(#doorart) {
+        position: relative;
+        z-index: 1;
+      }
       #frontdoor h1 {
         color: #d5aa54;
-        font-size: 42px;
-        letter-spacing: 6px;
+        font-size: 44px;
+        letter-spacing: 7px;
         margin: 0;
-        text-shadow: 0 2px 12px rgba(213, 170, 84, 0.35);
+        text-shadow:
+          0 2px 12px rgba(213, 170, 84, 0.35),
+          0 1px 0 #000;
+      }
+      #frontdoor h1::after {
+        content: '';
+        display: block;
+        width: 300px;
+        height: 1px;
+        margin: 10px auto 0;
+        background: linear-gradient(90deg, transparent, #d5aa54, transparent);
       }
       #frontdoor .primer {
-        color: #b9ad98;
+        color: #cfc4ae;
         font-size: 14px;
         line-height: 1.7;
         max-width: 460px;
+        text-shadow: 0 1px 4px #000;
       }
       #frontdoor .primer b {
         color: #f2d68c;
@@ -371,31 +488,57 @@
         display: flex;
         gap: 14px;
       }
+      /* Writ posters: iron-backed, gold-nailed at the corners. */
       .doorcard {
         width: 172px;
-        background: rgba(0, 0, 0, 0.5);
-        border: 2px solid #3a3f33;
-        border-radius: 8px;
+        background:
+          radial-gradient(circle 2.2px at 9px 9px, #d5aa54 0 1.7px, transparent 2.2px),
+          radial-gradient(circle 2.2px at calc(100% - 9px) 9px, #d5aa54 0 1.7px, transparent 2.2px),
+          radial-gradient(
+            circle 2.2px at 9px calc(100% - 9px),
+            #d5aa54 0 1.7px,
+            transparent 2.2px
+          ),
+          radial-gradient(
+            circle 2.2px at calc(100% - 9px) calc(100% - 9px),
+            #d5aa54 0 1.7px,
+            transparent 2.2px
+          ),
+          linear-gradient(180deg, rgba(33, 29, 21, 0.94), rgba(18, 16, 11, 0.94));
+        border: 1px solid var(--panel-edge);
+        box-shadow:
+          var(--pin),
+          0 4px 12px rgba(0, 0, 0, 0.45);
+        border-radius: 7px;
         padding: 14px 12px;
         cursor: pointer;
         transition:
           border-color 0.15s,
-          transform 0.15s;
+          transform 0.15s,
+          box-shadow 0.15s;
       }
       .doorcard:hover {
         transform: translateY(-3px);
+        box-shadow:
+          var(--pin),
+          0 8px 18px rgba(0, 0, 0, 0.55);
       }
       .doorcard.sel {
         border-color: #d5aa54;
-        background: rgba(213, 170, 84, 0.08);
+        box-shadow:
+          var(--pin-strong),
+          0 6px 18px rgba(213, 170, 84, 0.18);
       }
       .doorcard .ic {
         font-size: 30px;
       }
       .doorcard .ti {
-        color: #f4ead8;
+        color: #f2d68c;
         font-weight: bold;
+        letter-spacing: 1px;
         margin: 6px 0 4px;
+        border-bottom: 1px solid rgba(213, 170, 84, 0.25);
+        padding-bottom: 4px;
       }
       .doorcard .bl {
         color: #b9ad98;
@@ -403,8 +546,9 @@
         line-height: 1.5;
       }
       #doorname {
-        background: rgba(0, 0, 0, 0.6);
-        border: 1px solid #3a3f33;
+        background: rgba(12, 10, 7, 0.75);
+        border: 1px solid var(--panel-edge);
+        box-shadow: var(--pin);
         border-radius: 5px;
         color: #f4ead8;
         font-family: inherit;
@@ -418,19 +562,22 @@
         border-color: #d5aa54;
       }
       #doorplay {
-        background: #d5aa54;
+        background: linear-gradient(180deg, #e7bd66, #c99c47);
         color: #14170f;
         font-weight: bold;
         font-size: 17px;
-        letter-spacing: 2px;
+        letter-spacing: 3px;
         border-radius: 6px;
         padding: 9px 46px;
         cursor: pointer;
-        border: none;
+        border: 1px solid #8a6f35;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 240, 200, 0.5),
+          0 3px 10px rgba(0, 0, 0, 0.45);
         font-family: inherit;
       }
       #doorplay:hover {
-        background: #f2d68c;
+        background: linear-gradient(180deg, #f2d68c, #d5aa54);
       }
       #doorhelp {
         color: #b9ad98;
@@ -451,17 +598,24 @@
       #helpov .box {
         display: inline-block;
         text-align: left;
-        background: rgba(0, 0, 0, 0.6);
-        border: 1px solid #3a3f33;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-edge);
+        box-shadow:
+          var(--pin),
+          0 6px 20px rgba(0, 0, 0, 0.55);
         border-radius: 8px;
         padding: 18px 26px;
         font-size: 13px;
         line-height: 2;
       }
       #helpov .hdr {
-        color: #d5aa54;
+        color: var(--gold);
         font-weight: bold;
         font-size: 15px;
+        letter-spacing: 2px;
+        border-bottom: 1px solid rgba(213, 170, 84, 0.3);
+        padding-bottom: 4px;
+        margin-bottom: 4px;
       }
       #helpov .key {
         display: inline-block;
@@ -519,6 +673,7 @@
     </div>
     <div id="gearbtn" class="hud" title="Settings (Esc)">⚙</div>
     <div id="frontdoor" class="hud">
+      <canvas id="doorart"></canvas>
       <h1>FIRELANCE</h1>
       <div class="primer">
         Ride with your squad. <b>Earn gold</b> from kills and bounties — it piles up in your keep.

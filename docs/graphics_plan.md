@@ -1,6 +1,7 @@
 # Firelance Graphics Plan — the Vale earns its portrait
 
-> **Drafted:** 2026-07-18 · **Status:** G1–G5 shipped 2026-07-18/19 (G3 closed the Lived-In Vale interlude; G5 bundled the TILE 19→23 zoom bump) · G6 queued
+> **Drafted:** 2026-07-18 · **Status:** ✦ G-SERIES COMPLETE ✦ — all six slices shipped
+> 2026-07-18/19 (G3 closed the Lived-In Vale interlude; G5 bundled the TILE 19→23 zoom bump)
 > **Scope:** render-only. Zero sim, zero protocol, zero config-hash changes. Every slice ships alone.
 > **North star image:** `docs/media/conceptart1.png` (the Red Writ concept board)
 
@@ -348,6 +349,19 @@ Verify: door → play → death → end-screen flow eyeballed at 1080p and a lap
 killfeed/board legibility over the brightest terrain (G5 meadows); no layout shift vs today
 (reuse the same element IDs — `hud.ts` reset() contract untouched).
 Risk: low. CSS + one self-contained Pixi vignette behind a DOM door.
+
+**Shipped 2026-07-19 — and the series closes.** Field notes: (1) the whole reskin is CSS
+variables + one shared panel recipe (iron gradient, `--panel-edge` border, gold-pinstripe
+inset shadow) applied per-ID — zero markup or `hud.ts` contract changes; banners got their
+gold rules via `::before/::after`, the board seal and card nail-heads are pure gradients.
+(2) The door art went **canvas 2D, not Pixi** — the Pixi scene doesn't exist until the
+welcome, so `#doorart` paints its own dusk (starfield, ember horizon, twin treelines, the
+keep silhouette flying a wax-red banner with lit windows, drifting embers) in a tiny rAF
+loop that stops on RIDE; codex colors via `cssOf`. First frame paints synchronously — the
+door must never open on a blank wall. (3) Verified live: computed-style probes + the art
+PNG (`g6_doorart.png`) + full-page screenshots of the door and in-game HUD (the pane finally
+rendered visibly this session). Zero console errors. Scanline toggle: skipped, as scoped —
+scope discipline held through all six slices.
 
 ---
 
